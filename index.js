@@ -13,8 +13,12 @@ const client = new Client(
 client.on('messageCreate', message => {
   if(message.author.bot) return; //BOTのメッセージには反応しない
 
-  if(message.content === "こんにちわ") {
-    message.channel.send("こんにちわ！");
+  // メンションされたら返答
+  if(message.mentions.has(client.user.id)) {
+    console.log(message.content);
+    let word = message.content.split(' ');
+    console.log(word[1]);
+    message.channel.send(word[1]);
   }
 });
 
