@@ -1,14 +1,15 @@
-const { Client, GatewayIntentBits } = require('discord.js');
-const { token } = require('./config.json');
-
-const client = new Client(
-  { intents: [
+import { Client, GatewayIntentBits } from 'discord.js';
+import dotenv from 'dotenv';
+import { addInconsistent } from './back/DBtest.js';
+dotenv.config();
+const token = process.env.DISCORD_TOKEN;
+const client = new Client({
+  intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent
-    ]
-  }
-);
+  ]
+});
 
 client.on('messageCreate', message => {
   if(message.author.bot) return; //BOTのメッセージには反応しない
@@ -18,11 +19,15 @@ client.on('messageCreate', message => {
     console.log(message.content);
     let word = message.content.split(' ');
     console.log(word[1]);
-    message.channel.send(word[1]);
+    if(word[1] == "fix" && word.length == 4) {
+      addInconsistent(word[2], word[3]);
+    } else {
+      message.channel.send(word[1]);
+    }
   }
 });
 
-client.on('ready', () => {
+client.on('clientready', () => {
   console.log('ボットが起動したよ');
 });
 client.login(token);
