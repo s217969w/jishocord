@@ -24,27 +24,26 @@ export async function addword(word, fullWord, Japanese, summary, detail) {
   else console.log('Data:', data);
 }
 
-export async function getTips(word) {
+export async function getTips(word){
   const { data: inconsistent, error } = await supabase
     .from('inconsistent')
     .select()
     .eq('word', word);
   if (error) console.error('Error:', error.message);
-  else console.log('Data:', inconsistent);
+  //else console.log('Data:', inconsistent);
   let fixedWord = "";
   if(inconsistent.length == 1) {
     fixedWord = inconsistent[0].fix;
   } else {
     fixedWord = word;
   }
-  console.log(word);
   const { data, error:error2 } = await supabase
     .from('dictionary')
     .select()
-    .eq('word', word);
-  if (error) console.error('Error:', error.message);
+    .eq('word', fixedWord);
+  if (error2) console.error('Error:', error2.message);
   else {
-    console.log('Data:', data);
-    return data;
+    if(data.length == 0) return null;
+    else return data[0];
   }
 }

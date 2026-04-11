@@ -2,6 +2,7 @@ import { Client, GatewayIntentBits } from 'discord.js';
 import dotenv from 'dotenv';
 import { addInconsistent } from './back/DBtest.js';
 import { addword, getTips } from './back/DB.js';
+import { description } from './description.js';
 dotenv.config();
 const token = process.env.DISCORD_TOKEN;
 const client = new Client({
@@ -14,7 +15,7 @@ const client = new Client({
 
 
 
-client.on('messageCreate', message => {
+client.on('messageCreate', async message => {
   if(message.author.bot) return; //BOTのメッセージには反応しない
 
   // メンションされたら返答
@@ -28,8 +29,10 @@ client.on('messageCreate', message => {
     } else {
       let word = inl.join(' ');
       console.log(word);
-      let data = getTips(word);
-      message.channel.send(word);
+      let data = await getTips(word);
+      console.log(data);
+      let sendMessage = description(data);
+      message.channel.send(sendMessage);
     }
   }
 });
