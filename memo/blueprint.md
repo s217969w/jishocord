@@ -82,7 +82,7 @@ Breadth First Search, 幅優先探索
 dictionary
 - word: string
 単語
-- fullWord: srting | null
+- fullWord: string | null
 略称の場合正式名称
 - Japanese: string | null
 正式名称が英語の場合日本語の意味

@@ -30,12 +30,12 @@ export async function getTips(word){
     .select()
     .eq('word', word);
   if (error) console.error('Error:', error.message);
-  //else console.log('Data:', inconsistent);
+  //else console.log('表記ゆれ:', inconsistent);
   let fixedWord = "";
-  if(inconsistent.length == 1) {
-    fixedWord = inconsistent[0].fix;
-  } else {
+  if(!inconsistent || inconsistent.length != 1) {
     fixedWord = word;
+  } else {
+    fixedWord = inconsistent[0].fix;
   }
   const { data, error:error2 } = await supabase
     .from('dictionary')
