@@ -1,7 +1,6 @@
 import { Client, GatewayIntentBits } from 'discord.js';
 import dotenv from 'dotenv';
-import { addInconsistent } from './back/DBtest.js';
-import { addword, getTips } from './back/DB.js';
+import { addInconsistent, addword, getTips } from './back/DB.js';
 import { description } from './description.js';
 dotenv.config();
 const token = process.env.DISCORD_TOKEN;
@@ -20,19 +19,22 @@ client.on('messageCreate', async message => {
 
   // メンションされたら返答
   if(message.mentions.has(client.user.id)) {
-    console.log(message.content);
     let inl = message.content.split(' ');
     inl.shift();
     
-    if(inl[0] == "fix" && inl.length == 3) {
-      addInconsistent(inl[1], inl[2]);
+    if(inl.length == 0) {
+      message.channel.send("こんにちは。呼びましたか？");
+    } else if(inl[0] == "fix" && inl.length == 3) {
+      await addInconsistent(inl[1], inl[2]);
     } else {
       let word = inl.join(' ');
-      console.log(word);
       let data = await getTips(word);
-      console.log(data);
-      let sendMessage = description(data);
-      message.channel.send(sendMessage);
+      if(!data) {
+        message.channel.send("ごめんなさい、" + word + "は登録されてないみたい...");
+      } else {
+        let sendMessage = description(data);
+        message.channel.send(sendMessage);
+      }
     }
   }
 });

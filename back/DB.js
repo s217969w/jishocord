@@ -12,14 +12,14 @@ export async function addInconsistent(word, fix) {
   else console.log('Data:', data);
 }
 
-export async function addword(word, fullWord, Japanese, summary, detail) {
-  if(word == null || summary == null || detail == null) {
+export async function addword(word, pronounce, fullWord, Japanese, summary, detail) {
+  if(!word || !pronounce || !summary || !detail) {
     console.error('必須項目が不足');
     return;
   }
   const { data, error } = await supabase
-    .from('inconsistent')
-    .insert([{ word, fullWord, Japanese, summary, detail }]);
+    .from('dictionary')
+    .insert([{ word, pronounce, fullWord, Japanese, summary, detail }]);
   if (error) console.error('Error:', error.message);
   else console.log('Data:', data);
 }
