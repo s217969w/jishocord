@@ -2,8 +2,12 @@ import { Client, GatewayIntentBits } from 'discord.js';
 import dotenv from 'dotenv';
 import { addInconsistent, getTips } from './back/DB.js';
 import { description } from './description.js';
+import { GoogleGenAI } from '@google/genai';
+import { askAI, personalityTuning } from './back/AI.js';
 dotenv.config();
 const token = process.env.DISCORD_TOKEN;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const ai = new GoogleGenAI({apiKey: GEMINI_API_KEY});
 if(!token) {
   console.error('DISCORD_TOKEN is not set.');
   process.exit(1);
@@ -35,8 +39,17 @@ client.on('messageCreate', async message => {
         let word = inl.join(' ');
         let data = await getTips(word);
         if(!data) {
-          message.channel.send("ごめんなさい、" + word + "は登録されてないみたい...");
+          message.channel.send(`${word}は登録されてなかったから、AIに聞いてみるね...`);
+          data = await askAI(word);
+          if(!data) {
+            message.channel.send(`ごめんなさい、調べたけど分からなかった...`);
+          } else {
+            data = await personalityTuning(data);
+            let sendMessage = description(data);
+            message.channel.send(sendMessage);
+          }
         } else {
+          console.log(data);
           let sendMessage = description(data);
           message.channel.send(sendMessage);
         }
