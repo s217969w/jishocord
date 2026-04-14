@@ -1,13 +1,17 @@
-import { Client, GatewayIntentBits } from 'discord.js';
+
+import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, Events } from 'discord.js';
 import dotenv from 'dotenv';
 import { addInconsistent, getTips } from './back/DB.js';
 import { description } from './description.js';
 dotenv.config();
 const token = process.env.DISCORD_TOKEN;
-if(!token) {
-  console.error('DISCORD_TOKEN is not set.');
+const clientId = process.env.DISCORD_CLIENT_ID;
+const guildId = process.env.DISCORD_GUILD_ID;
+if(!token || !clientId || !guildId) {
+  console.error('DISCORD_TOKEN, CLIENT_ID, または GUILD_ID が設定されていません。');
   process.exit(1);
 }
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -16,8 +20,73 @@ const client = new Client({
   ]
 });
 
+// スラッシュコマンド定義
+const commands = [
+  new SlashCommandBuilder()
+    .setName('ping')
+    .setDescription('Replies with Pong!'),
+  new SlashCommandBuilder()
+    .setName('ask')
+    .setDescription('技術用語の説明を表示します')
+    .addStringOption(option =>
+      option.setName('word')
+        .setDescription('調べたい単語')
+        .setRequired(true)),
+]
+  .map(command => command.toJSON());
 
+// コマンド登録
+const rest = new REST({ version: '10' }).setToken(token);
 
+async function registerCommands() {
+  try {
+    await rest.put(
+      Routes.applicationGuildCommands(clientId, guildId),
+      { body: commands },
+    );
+    console.log('スラッシュコマンドを登録しました');
+  } catch (error) {
+    console.error('コマンド登録エラー:', error);
+  }
+}
+
+client.once(Events.ClientReady, async () => {
+  console.log('ボットが起動したよ');
+  await registerCommands();
+});
+
+client.on(Events.InteractionCreate, async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+  try {
+    if (interaction.commandName === 'ping') {
+      await interaction.reply({content:'pong!', flags: 'Ephemeral'});
+    } else if (interaction.commandName === 'ask') {
+      const word = interaction.options.getString('word');
+      let data = await getTips(word);
+      if (!data) {
+        data = askAI(word);
+        await interaction.reply({ content: `ごめんなさい、調べたけど分からなかった...`, flags: 'Ephemeral' });
+      } else {
+        const sendMessage = description(data);
+        await interaction.reply({content: sendMessage, flags: 'Ephemeral'});
+      }
+    } else if (interaction.commandName === 'fix') {
+      const key = interaction.options.getString('key');
+      const value = interaction.options.getString('value');
+      await addInconsistent(key, value);
+      await interaction.reply('不整合データを追加しました');
+    }
+  } catch (error) {
+    console.error('スラッシュコマンド処理中に問題が発生しました:', error);
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp({ content: 'エラーが発生しました。', flags: 'Ephemeral' });
+    } else {
+      await interaction.reply({ content: 'エラーが発生しました。', flags: 'Ephemeral' });
+    }
+  }
+});
+
+// 旧メッセージコマンドも残す場合はここに
 client.on('messageCreate', async message => {
   if(message.author.bot) return; //BOTのメッセージには反応しない
 
@@ -25,9 +94,8 @@ client.on('messageCreate', async message => {
   if(message.mentions.has(client.user.id)) {
     let inl = message.content.split(' ');
     inl.shift();
-    
     try {
-        if(inl.length == 0) {
+      if(inl.length == 0) {
         message.channel.send("こんにちは。呼びましたか？");
       } else if(inl[0] == "fix" && inl.length == 3) {
         await addInconsistent(inl[1], inl[2]);
@@ -47,7 +115,4 @@ client.on('messageCreate', async message => {
   }
 });
 
-client.on('clientready', () => {
-  console.log('ボットが起動したよ');
-});
 client.login(token);
