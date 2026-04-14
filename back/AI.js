@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
+import { addword } from "./DB.js";
 
 
 const wordSchema = z.object({
@@ -50,13 +51,17 @@ const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
 export async function askAI(word) {
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-lite',
-        contents: [{ role: "user", parts: [{ text: `${askPrompt.replace("{word}", word)}\n${personalityPrompt}\n${examplePrompt}` }] }],
+        contents: [{ role: "user", parts: [{ text: `${structPrompt.replace("{word}", word)}\n${personalityPrompt}\n${examplePrompt}` }] }],
         config: {
             responseMimeType: "application/json",
             responseJsonSchema: zodToJsonSchema(wordSchema),
         },
     });
-    const data = wordSchema.parse(JSON.parse(response.text));
+    const parsed = JSON.parse(response.text);
+    if (parsed === null) {
+        return null;
+    }
+    const data = wordSchema.parse(parsed);
     console.log(data);
-    return data;
+    await addword(data, false);
 }
