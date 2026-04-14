@@ -8,19 +8,28 @@ export async function addInconsistent(word, fix) {
   const { data, error } = await supabase
     .from('inconsistent')
     .insert([{ word, fix }]);
-  if (error) console.error('Error:', error.message);
+  if (error) console.error('Error in DB.js:', error.message);
   else console.log('Data:', data);
 }
 
-export async function addword(word, pronounce, fullWord, Japanese, summary, detail) {
-  if(!word || !pronounce || !summary || !detail) {
-    console.error('必須項目が不足');
+export async function addword(entryDetails, isApproved) {
+  if(!entryDetails.word || !entryDetails.pronounce || !entryDetails.summary || !entryDetails.detail) {
+    console.error('Error in DB.js: 必須項目が不足');
     return;
   }
   const { data, error } = await supabase
     .from('dictionary')
-    .insert([{ word, pronounce, fullWord, Japanese, summary, detail }]);
-  if (error) console.error('Error:', error.message);
+    .insert([{
+      word: entryDetails.word,
+      pronounce: entryDetails.pronounce,
+      fullWord: entryDetails.fullWord,
+      Japanese: entryDetails.Japanese,
+      summary: entryDetails.summary,
+      detail: entryDetails.detail,
+      is_approved: isApproved
+      }]
+    );
+  if (error) console.error('Error in DB.js:', error.message);
   else console.log('Data:', data);
 }
 
@@ -41,7 +50,7 @@ export async function getTips(word){
     .from('dictionary')
     .select()
     .eq('word', fixedWord);
-  if (error2) console.error('Error:', error2.message);
+  if (error2) console.error('Error in DB.js:', error2.message);
   else {
     if(data.length == 0) return null;
     else return data[0];
