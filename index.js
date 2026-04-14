@@ -70,11 +70,6 @@ client.on(Events.InteractionCreate, async interaction => {
         const sendMessage = description(data);
         await interaction.reply({content: sendMessage, flags: 'Ephemeral'});
       }
-    } else if (interaction.commandName === 'fix') {
-      const key = interaction.options.getString('key');
-      const value = interaction.options.getString('value');
-      await addInconsistent(key, value);
-      await interaction.reply('不整合データを追加しました');
     }
   } catch (error) {
     console.error('スラッシュコマンド処理中に問題が発生しました:', error);
