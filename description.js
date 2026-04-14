@@ -1,4 +1,4 @@
-export function description(data) {
+export async function description(data) {
     let desc = "";
     desc += data.word;
     desc += '【' + data.pronounce + '】\n\n';

@@ -44,13 +44,12 @@ client.on('messageCreate', async message => {
           if(!data) {
             message.channel.send(`ごめんなさい、調べたけど分からなかった...`);
           } else {
-            data = await personalityTuning(data);
-            let sendMessage = description(data);
+            let sendMessage = await description(data);
             message.channel.send(sendMessage);
           }
         } else {
           console.log(data);
-          let sendMessage = description(data);
+          let sendMessage = await description(data);
           message.channel.send(sendMessage);
         }
       }
