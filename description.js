@@ -1,4 +1,4 @@
-export function description(data) {
+export async function description(data) {
     let desc = "";
     desc += data.word;
     desc += '【' + data.pronounce + '】\n\n';
@@ -9,5 +9,8 @@ export function description(data) {
     }
     desc += data.summary + '\n';
     desc += data.detail;
+    if(data.is_approved === false) {
+        desc += '\n※これはAIで作った説明で、未承認だよ。後で<コマンド>から承認か編集しておいてね。';
+    }
     return desc;
 }

@@ -3,6 +3,7 @@ import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, Events } 
 import dotenv from 'dotenv';
 import { addInconsistent, getTips } from './back/DB.js';
 import { description } from './description.js';
+import { askAI } from './back/AI.js';
 dotenv.config();
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.DISCORD_CLIENT_ID;
@@ -91,21 +92,31 @@ client.on('messageCreate', async message => {
     inl.shift();
     try {
       if(inl.length == 0) {
-        message.channel.send("こんにちは。呼びましたか？");
+        await message.channel.send("こんにちは。呼びましたか？");
       } else if(inl[0] == "fix" && inl.length == 3) {
         await addInconsistent(inl[1], inl[2]);
       } else {
         let word = inl.join(' ');
         let data = await getTips(word);
         if(!data) {
-          message.channel.send("ごめんなさい、" + word + "は登録されてないみたい...");
+          await message.channel.send(`${word}は登録されてなかったから、AIに聞いてみるね...`);
+          await askAI(word);
+          data = await getTips(word);
+          if(!data) {
+            await message.channel.send(`ごめんなさい、調べたけど分からなかった...`);
+          } else {
+            let sendMessage = await description(data);
+            await message.channel.send(sendMessage);
+          }
         } else {
-          let sendMessage = description(data);
-          message.channel.send(sendMessage);
+          console.log(data);
+          let sendMessage = await description(data);
+          await message.channel.send(sendMessage);
         }
       }
     } catch (error) {
       console.error('処理中に問題が発生しました: ', error);
+      await message.channel.send("ごめんなさい、エラーが発生しちゃいました...");
     }
   }
 });

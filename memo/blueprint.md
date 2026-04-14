@@ -90,6 +90,8 @@ dictionary
 概要。一文で簡潔に
 - detail: string
 詳細。2~3文で。
+- pronounce: string
+読み方。必ず平仮名。
 
 inconsistent(表記ゆれ)
 - word: string
