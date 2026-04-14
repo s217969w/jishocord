@@ -12,12 +12,12 @@ export async function addInconsistent(word, fix) {
   else console.log('Data:', data);
 }
 
-export async function addword(entryDetails, isApporoved) {
+export async function addword(entryDetails, isApproved) {
   if(!entryDetails.word || !entryDetails.pronounce || !entryDetails.summary || !entryDetails.detail) {
     console.error('Error in DB.js: 必須項目が不足');
     return;
   }
-  const { rt, error } = await supabase
+  const { data, error } = await supabase
     .from('dictionary')
     .insert([{
       word: entryDetails.word,
@@ -26,11 +26,11 @@ export async function addword(entryDetails, isApporoved) {
       Japanese: entryDetails.Japanese,
       summary: entryDetails.summary,
       detail: entryDetails.detail,
-      is_approved: isApporoved
+      is_approved: isApproved
       }]
     );
   if (error) console.error('Error in DB.js:', error.message);
-  else console.log('Data:', rt);
+  else console.log('Data:', data);
 }
 
 export async function getTips(word){

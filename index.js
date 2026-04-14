@@ -2,12 +2,9 @@ import { Client, GatewayIntentBits } from 'discord.js';
 import dotenv from 'dotenv';
 import { addInconsistent, getTips } from './back/DB.js';
 import { description } from './description.js';
-import { GoogleGenAI } from '@google/genai';
 import { askAI } from './back/AI.js';
 dotenv.config();
 const token = process.env.DISCORD_TOKEN;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const ai = new GoogleGenAI({apiKey: GEMINI_API_KEY});
 if(!token) {
   console.error('DISCORD_TOKEN is not set.');
   process.exit(1);
@@ -32,31 +29,31 @@ client.on('messageCreate', async message => {
     
     try {
         if(inl.length == 0) {
-        message.channel.send("こんにちは。呼びましたか？");
+        await message.channel.send("こんにちは。呼びましたか？");
       } else if(inl[0] == "fix" && inl.length == 3) {
         await addInconsistent(inl[1], inl[2]);
       } else {
         let word = inl.join(' ');
         let data = await getTips(word);
         if(!data) {
-          message.channel.send(`${word}は登録されてなかったから、AIに聞いてみるね...`);
+          await message.channel.send(`${word}は登録されてなかったから、AIに聞いてみるね...`);
           await askAI(word);
           data = await getTips(word);
           if(!data) {
-            message.channel.send(`ごめんなさい、調べたけど分からなかった...`);
+            await message.channel.send(`ごめんなさい、調べたけど分からなかった...`);
           } else {
             let sendMessage = await description(data);
-            message.channel.send(sendMessage);
+            await message.channel.send(sendMessage);
           }
         } else {
           console.log(data);
-          let sendMessage = await description(data, data.is_approved);
-          message.channel.send(sendMessage);
+          let sendMessage = await description(data);
+          await message.channel.send(sendMessage);
         }
       }
     } catch (error) {
       console.error('処理中に問題が発生しました: ', error);
-      message.channel.send("ごめんなさい、エラーが発生しちゃいました...");
+      await message.channel.send("ごめんなさい、エラーが発生しちゃいました...");
     }
   }
 });

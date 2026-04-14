@@ -13,6 +13,8 @@ const wordSchema = z.object({
     pronounce:z.string().describe(`単語の読み方。すべて平仮名。`),
 });
 
+const responseSchema = z.union([wordSchema, z.null()]);
+
 const structPrompt = 
     `
     以下の形式で、技術用語「{word}」についてJSONで出力してください。\n
@@ -37,31 +39,35 @@ const examplePrompt =
     `
     出力例:
     {
-    word: 'BFS',\n
-    fullWord: 'Breadth First Search',\n
-    Japanese: '幅優先探索',\n
-    summary: '探索アルゴリズムのひとつだよ。',\n
-    detail: 'グラフ構造などにおいて、始点からの距離が最も近い箇所から順番に探索していく手法だよ。主にキューが使用されるよ。',\n
-    pronounce: 'びーえふえす'
+    "word": "BFS",\n
+    "fullWord": "Breadth First Search",\n
+    "Japanese": "幅優先探索",\n
+    "summary": "探索アルゴリズムのひとつだよ。",\n
+    "detail": "グラフ構造などにおいて、始点からの距離が最も近い箇所から順番に探索していく手法だよ。主にキューが使用されるよ。",\n
+    "pronounce": "びーえふえす"
     }
     `
-
-const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
+dotenv.config();
+const apiKey = process.env.GEMINI_API_KEY;
+if(!apiKey) {
+    throw new Error("GEMINI_API_KEY is not set")
+}
+const ai = new GoogleGenAI({ apiKey });
 
 export async function askAI(word) {
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-lite',
-        contents: [{ role: "user", parts: [{ text: `${structPrompt.replace("{word}", word)}\n${personalityPrompt}\n${examplePrompt}` }] }],
+        contents: [{ role: "user", parts: [{ text: `${structPrompt.replaceAll("{word}", word)}\n${personalityPrompt}\n${examplePrompt}` }] }],
         config: {
             responseMimeType: "application/json",
-            responseJsonSchema: zodToJsonSchema(wordSchema),
+            responseJsonSchema: zodToJsonSchema(responseSchema),
         },
     });
     const parsed = JSON.parse(response.text);
     if (parsed === null) {
         return null;
     }
-    const data = wordSchema.parse(parsed);
+    const data = responseSchema.parse(parsed);
     console.log(data);
     await addword(data, false);
 }
