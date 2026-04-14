@@ -11,6 +11,7 @@ const wordSchema = z.object({
     summary: z.string().describe("概要。一文で簡潔に説明。"),
     detail: z.string().describe(`詳細。2~3文で説明。`),
     pronounce:z.string().describe(`単語の読み方。すべて平仮名。`),
+    is_approved:z.boolean().default(false).describe("承認済みかどうか。")
 });
 
 const responseSchema = z.union([wordSchema, z.null()]);
