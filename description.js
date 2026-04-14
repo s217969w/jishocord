@@ -1,3 +1,4 @@
+// データを元に説明文を組み立てる
 export async function description(data) {
     let desc = "";
     desc += data.word;

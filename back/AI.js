@@ -2,7 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { addword } from "./DB.js";
-
+import dotenv from 'dotenv';
 
 const wordSchema = z.object({
     word: z.string().describe("単語。例: BFS"),
@@ -15,6 +15,7 @@ const wordSchema = z.object({
 
 const responseSchema = z.union([wordSchema, z.null()]);
 
+// 構成の指定
 const structPrompt = 
     `
     以下の形式で、技術用語「{word}」についてJSONで出力してください。\n
@@ -27,7 +28,7 @@ const structPrompt =
     ただし、{word}が存在しない単語の場合や説明できない場合、不適切用語だと判断した場合はnullを返してください。
     `;
     
-    
+// 人格の指定
 const personalityPrompt = 
     `
     summaryとdetailは、「知的で落ち着いた女子」が話しているような形で出力してください。
@@ -35,6 +36,7 @@ const personalityPrompt =
     語尾は親しみやすい口調(「～だよ」「～だね」)を中心に使用してください。
     `;
 
+// 例の指定
 const examplePrompt = 
     `
     出力例:
@@ -69,5 +71,6 @@ export async function askAI(word) {
     }
     const data = responseSchema.parse(parsed);
     console.log(data);
-    await addword(data, false);
+    await addword(data);
+    return data;
 }

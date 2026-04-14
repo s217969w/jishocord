@@ -65,10 +65,15 @@ client.on(Events.InteractionCreate, async interaction => {
       const word = interaction.options.getString('word');
       let data = await getTips(word);
       if (!data) {
-        data = askAI(word);
-        await interaction.reply({ content: `ごめんなさい、調べたけど分からなかった...`, flags: 'Ephemeral' });
+        data = await askAI(word);
+        if(!data) {
+          await interaction.reply({ content: `ごめんなさい、調べたけど分からなかった...`, flags: 'Ephemeral' });
+        } else {
+          const sendMessage = await description(data);
+          await interaction.reply({content: sendMessage, flags: 'Ephemeral'});
+        }
       } else {
-        const sendMessage = description(data);
+        const sendMessage = await description(data);
         await interaction.reply({content: sendMessage, flags: 'Ephemeral'});
       }
     }
@@ -96,21 +101,23 @@ client.on('messageCreate', async message => {
       } else if(inl[0] == "fix" && inl.length == 3) {
         await addInconsistent(inl[1], inl[2]);
       } else {
-        let word = inl.join(' ');
+        const word = inl.join(' ');
         let data = await getTips(word);
         if(!data) {
+          // 未登録の場合
           await message.channel.send(`${word}は登録されてなかったから、AIに聞いてみるね...`);
-          await askAI(word);
-          data = await getTips(word);
+          data = await askAI(word);
           if(!data) {
+            // AIがnullを返した
             await message.channel.send(`ごめんなさい、調べたけど分からなかった...`);
           } else {
-            let sendMessage = await description(data);
+            const sendMessage = await description(data);
             await message.channel.send(sendMessage);
           }
         } else {
+          // 登録済み。そのまま返信
           console.log(data);
-          let sendMessage = await description(data);
+          const sendMessage = await description(data);
           await message.channel.send(sendMessage);
         }
       }

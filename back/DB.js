@@ -12,7 +12,8 @@ export async function addInconsistent(word, fix) {
   else console.log('Data:', data);
 }
 
-export async function addword(entryDetails, isApproved) {
+// DBへ単語を追加
+export async function addword(entryDetails) {
   if(!entryDetails.word || !entryDetails.pronounce || !entryDetails.summary || !entryDetails.detail) {
     console.error('Error in DB.js: 必須項目が不足');
     return;
@@ -26,7 +27,7 @@ export async function addword(entryDetails, isApproved) {
       Japanese: entryDetails.Japanese,
       summary: entryDetails.summary,
       detail: entryDetails.detail,
-      is_approved: isApproved
+      is_approved: false
       }]
     );
   if (error) console.error('Error in DB.js:', error.message);
