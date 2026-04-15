@@ -30,7 +30,7 @@ export async function addword(entryDetails) {
       is_approved: false
       }]
     );
-  if (error) console.error('Error in DB.js:', error.message);
+  if (error) console.error('Error in addword:', error.message);
   else console.log('Data:', data);
 }
 
@@ -51,9 +51,33 @@ export async function getTips(word){
     .from('dictionary')
     .select()
     .eq('word', fixedWord);
-  if (error2) console.error('Error in DB.js:', error2.message);
+  if (error2) console.error('Error in getTips:', error2.message);
   else {
     if(data.length == 0) return null;
     else return data[0];
   }
+}
+
+export async function getUnapproved() {
+  const { data, error } = await supabase
+    .from('dictionary')
+    .select('word')
+    .eq('is_approved', false);
+  if (error) console.error('Error in getUnapproved():', error.message);
+  else {
+    console.log(data);
+    return data;
+  }
+  
+}
+
+export async function approve(word) {
+  const { data, error } = await supabase
+    .from('dictionary')
+    .update({is_approved: true})
+    .eq('word', word);
+  if (error) {
+    console.error('Error in getUnapproved():', error.message);
+    return 1;
+  } else return 0;
 }

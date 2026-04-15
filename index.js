@@ -1,7 +1,7 @@
 
 import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, Events } from 'discord.js';
 import dotenv from 'dotenv';
-import { addInconsistent, getTips } from './back/DB.js';
+import { addInconsistent, approve, getTips, getUnapproved } from './back/DB.js';
 import { description } from './description.js';
 import { askAI } from './back/AI.js';
 dotenv.config();
@@ -12,6 +12,8 @@ if(!token || !clientId || !guildId) {
   console.error('DISCORD_TOKEN, CLIENT_ID, または GUILD_ID が設定されていません。');
   process.exit(1);
 }
+
+const unapprovedListLimit = 10;
 
 const client = new Client({
   intents: [
@@ -32,6 +34,16 @@ const commands = [
     .addStringOption(option =>
       option.setName('word')
         .setDescription('調べたい単語')
+        .setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('unapproved')
+    .setDescription('未承認の単語リストを表示します'),
+  new SlashCommandBuilder()
+    .setName('approve')
+    .setDescription('指定した用語説明を承認します')
+    .addStringOption(option =>
+      option.setName('word')
+        .setDescription('承認する単語')
         .setRequired(true)),
 ]
   .map(command => command.toJSON());
@@ -75,6 +87,22 @@ client.on(Events.InteractionCreate, async interaction => {
       } else {
         const sendMessage = await description(data);
         await interaction.reply({content: sendMessage, flags: 'Ephemeral'});
+      }
+    } else if (interaction.commandName === 'unapproved') {
+      const wordList = await getUnapproved();
+      let sendMessage = '未承認の単語一覧です:\n';
+      for(let i = 0; i < Math.min(wordList.length, unapprovedListLimit); i++) {
+        sendMessage += `- ${wordList[i].word}\n`
+      }
+      if(wordList.length > unapprovedListLimit) sendMessage += `他${wordList.length - unapprovedListLimit}件`
+      await interaction.reply({content: sendMessage, flags: 'Ephemeral'});
+    } else if (interaction.commandName === 'approve') {
+      const word = interaction.options.getString('word');
+      const result = await approve(word);
+      if(result === 0) {
+        await interaction.reply({content:`${word}の説明を承認しました。`, flags: 'Ephemeral'});
+      } else {
+        await interaction.reply({content:'エラーが発生しました。', flags: 'Ephemeral'});
       }
     }
   } catch (error) {
