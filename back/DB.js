@@ -74,10 +74,19 @@ export async function getUnapproved() {
 export async function approve(word) {
   const { data, error } = await supabase
     .from('dictionary')
-    .update({is_approved: true})
-    .eq('word', word);
+    .update({ is_approved: true })
+    .eq('word', word)
+    .select(); // 更新後のデータを取得
   if (error) {
-    console.error('Error in getUnapproved():', error.message);
-    return 1;
-  } else return 0;
+    console.error('Error in approve():', error.message);
+    return 500;
+  } else {
+    // dataが空ならwordが存在しない
+    if (!data || data.length === 0) {
+      console.log('指定されたwordは存在しません');
+      return 404;
+    }
+    console.log(data);
+    return 200;
+  }
 }

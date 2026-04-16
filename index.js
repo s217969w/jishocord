@@ -99,8 +99,10 @@ client.on(Events.InteractionCreate, async interaction => {
     } else if (interaction.commandName === 'approve') {
       const word = interaction.options.getString('word');
       const result = await approve(word);
-      if(result === 0) {
+      if(result === 200) {
         await interaction.reply({content:`${word}の説明を承認しました。`, flags: 'Ephemeral'});
+      } else if(result === 404){
+        await interaction.reply({content:`未承認の単語に${word}は存在しません。`, flags: 'Ephemeral'});
       } else {
         await interaction.reply({content:'エラーが発生しました。', flags: 'Ephemeral'});
       }
