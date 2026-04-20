@@ -45,6 +45,34 @@ const commands = [
       option.setName('word')
         .setDescription('承認する単語')
         .setRequired(true)),
+  new SlashCommandBuilder()
+    .setName('edit')
+    .setDescription('技術用語の説明を編集します')
+    .addStringOption(option =>
+      option.setName('word')
+        .setDescription('編集する単語')
+        .setRequired(true),
+    )
+    .addStringOption(option =>
+      option.setName('pronounce')
+        .setDescription('読み方'),
+    )
+    .addStringOption(option =>
+      option.setName('fullword')
+        .setDescription('正式名称'),
+    )
+    .addStringOption(option =>
+        option.setName('japanese')
+        .setDescription('正式名称の日本語表記'),
+    )
+    .addStringOption(option =>
+        option.setName('summary')
+        .setDescription('概要文'),
+    )
+    .addStringOption(option =>
+        option.setName('detail')
+        .setDescription('説明文')
+    ),
 ]
   .map(command => command.toJSON());
 
@@ -105,6 +133,34 @@ client.on(Events.InteractionCreate, async interaction => {
         await interaction.reply({content:`未承認の単語に${word}は存在しません。`, flags: 'Ephemeral'});
       } else {
         await interaction.reply({content:'エラーが発生しました。', flags: 'Ephemeral'});
+      }
+    } else if (interaction.commandName === 'edit') {
+      // editコマンドの各オプションを取得
+      const word = interaction.options.getString('word');
+      const pronounce = interaction.options.getString('pronounce');
+      const fullWord = interaction.options.getString('fullWord');
+      const Japanese = interaction.options.getString('Japanese');
+      const summary = interaction.options.getString('summary');
+      const detail = interaction.options.getString('detail');
+
+      // 変更する項目だけオブジェクトに詰める
+      const editDetails = { word };
+      if (pronounce !== null) editDetails.pronounce = pronounce;
+      if (fullWord !== null) editDetails.fullWord = fullWord;
+      if (Japanese !== null) editDetails.Japanese = Japanese;
+      if (summary !== null) editDetails.summary = summary;
+      if (detail !== null) editDetails.detail = detail;
+
+      // editWordを呼び出す
+      const { editWord } = await import('./back/DB.js');
+      const result = await editWord(editDetails);
+
+      if (result === 200) {
+        await interaction.reply({ content: `${word}の説明を編集しました。`, flags: 'Ephemeral' });
+      } else if (result === 404) {
+        await interaction.reply({ content: `単語「${word}」は未登録だよ。`, flags: 'Ephemeral' });
+      } else {
+        await interaction.reply({ content: '編集中にエラーが発生しました。', flags: 'Ephemeral' });
       }
     }
   } catch (error) {

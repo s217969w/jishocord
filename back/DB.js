@@ -90,3 +90,27 @@ export async function approve(word) {
     return 200;
   }
 }
+
+export async function editWord(editDetails) {
+  const before = await getTips(editDetails.word);
+  if(!before) {
+    console.log('指定されたwordは存在しません');
+    return 404;
+  }
+  const updateDetail = {
+      ...before,
+      ...editDetails,
+  };
+  const { data, error } = await supabase
+    .from('dictionary')
+    .update(updateDetail)
+    .eq('word', editDetails.word)
+    .select(); // 更新後のデータを取得
+  if (error) {
+    console.error('Error in approve():', error.message);
+    return 500;
+  } else {
+    console.log(data);
+    return 200;
+  }
+}
