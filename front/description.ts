@@ -1,4 +1,4 @@
-import type { DictionaryEntry } from './back/interface.js';
+import type { DictionaryEntry } from '../back/interface.js';
 
 export async function description(data: DictionaryEntry): Promise<string> {
   let desc = '';
