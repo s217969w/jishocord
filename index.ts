@@ -1,9 +1,8 @@
 import { Client, Events, GatewayIntentBits, REST, type Message } from 'discord.js';
 import dotenv from 'dotenv';
 
-import { addInconsistent, getTips, getUnapproved, } from './back/DB.js';
-import { EditDetails, Envs } from './back/interface.js';
-import { askAI } from './back/AI.js';
+import { addInconsistent } from './back/DB.js';
+import { Envs } from './back/interface.js';
 import { interactionHandler, registerCommands } from './front/command.js';
 import { makeReply } from './front/commandHandler/ask.js';
 
@@ -64,7 +63,7 @@ client.on('messageCreate', async (message: Message) => {
     const word = inl.join(' ');
     const sendMessage = await makeReply(word);
     await message.reply(sendMessage);
-    
+
   } catch (error) {
     console.error('処理中に問題が発生しました: ', error);
     await message.reply('ごめんなさい、エラーが発生しちゃいました...');

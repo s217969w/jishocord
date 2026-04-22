@@ -1,7 +1,6 @@
 import { CacheType, ChatInputCommandInteraction } from "discord.js";
 import { getTips } from "../../back/DB.js";
 import { askAI } from "../../back/AI.js";
-import { DictionaryEntry } from "../../back/interface.js";
 
 // '/ask' が使用されたとき用
 export async function onAsked(interaction:ChatInputCommandInteraction<CacheType>) {
@@ -36,8 +35,8 @@ export async function makeReply(word: string): Promise<string> {
   desc += data.detail;
 
   if (data.is_approved === false) {
-    desc += `\n※これはAIで作った説明で、未承認だよ。\n
-この説明で大丈夫なら\`/approve\`から承認しておいてね。\n
+    desc += `\n※これはAIで作った説明で、未承認だよ。
+この説明で大丈夫なら\`/approve\`から承認しておいてね。
 もし間違ってたら\`/edit\`から教えて。`;
   }
 

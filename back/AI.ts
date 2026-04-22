@@ -1,7 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 
 import { addword } from './DB.js';
 import { DictionaryDraft } from './interface.js';
