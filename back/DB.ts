@@ -116,11 +116,11 @@ export async function editWord(editDetails: EditDetails): Promise<200 | 404 | 50
 
   const updateDetail: DictionaryEntry = {
     word:editDetails.word,
-    pronounce: editDetails.pronounce ? editDetails.pronounce : before.pronounce,
-    fullWord: editDetails.fullWord ? editDetails.fullWord : before.fullWord,
-    Japanese: editDetails.Japanese ? editDetails.Japanese : before.Japanese,
-    summary: editDetails.summary ? editDetails.summary : before.summary,
-    detail: editDetails.detail? editDetails.detail : before.detail,
+    pronounce: editDetails.pronounce ?? before.pronounce,
+    fullWord: editDetails.fullWord ?? before.fullWord,
+    Japanese: editDetails.Japanese ?? before.Japanese,
+    summary: editDetails.summary ?? before.summary,
+    detail: editDetails.detail ?? before.detail,
     is_approved: before.is_approved
   };
 
