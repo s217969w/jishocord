@@ -1,10 +1,10 @@
-import { Client, Events, GatewayIntentBits, REST, type Message } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, Events, GatewayIntentBits, REST, type Message } from 'discord.js';
 import dotenv from 'dotenv';
 
 import { addInconsistent } from './back/DB.js';
 import { Envs } from './back/interface.js';
 import { interactionHandler, registerCommands } from './front/command.js';
-import { makeReply } from './front/commandHandler/ask.js';
+import { generateData, makeReply } from './front/commandHandler/ask.js';
 
 dotenv.config();
 
@@ -61,8 +61,18 @@ client.on('messageCreate', async (message: Message) => {
     }
 
     const word = inl.join(' ');
-    const sendMessage = await makeReply(word);
-    await message.reply(sendMessage);
+    const data = await generateData(word);
+    const sendMessage = await makeReply(data);
+    if(data?.is_approved === false) {
+      const button = new ButtonBuilder()
+        .setCustomId("approve_button")
+        .setLabel("承認")
+        .setStyle(ButtonStyle.Success);
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(button);
+      await message.reply({ content:sendMessage, components:[row] });
+    } else {
+      await message.reply({ content:sendMessage });
+    }
 
   } catch (error) {
     console.error('処理中に問題が発生しました: ', error);
