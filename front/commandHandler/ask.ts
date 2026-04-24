@@ -36,7 +36,7 @@ export async function onAsked(interaction:ChatInputCommandInteraction<CacheType>
         return;
       }
     } catch {
-      await interaction.reply({ content: 'Confirmation not received within 1 minute, cancelling', components: [] });
+      await interaction.editReply({ content: 'Confirmation not received within 1 minute, cancelling', components: [] });
     }
   } else {
     await interaction.reply({ content:sendMessage, flags:'Ephemeral' });

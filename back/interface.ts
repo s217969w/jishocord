@@ -22,10 +22,6 @@ export interface EditDetails {
   detail: string | null;
 }
 
-export type DictionaryDraft = Omit<DictionaryEntry, 'is_approved'> & {
-  is_approved: boolean;
-};
-
 export interface Envs {
   token: string | undefined;
   clientId: string | undefined;

@@ -15,7 +15,7 @@ const envs : Envs = {
 }
 
 if (!envs.token || !envs.clientId || !envs.guildId) {
-  console.error('DISCORD_TOKEN, CLIENT_ID, または GUILD_ID が設定されていません。');
+  console.error('DISCORD_TOKEN, DISCORD_CLIENT_ID, または DISCORD_GUILD_ID が設定されていません。');
   process.exit(1);
 }
 

@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 import { z } from 'zod';
 
 import { addword } from './DB.js';
-import { DictionaryDraft } from './interface.js';
+import { DictionaryEntry } from './interface.js';
 
 dotenv.config();
 
@@ -46,7 +46,7 @@ const examplePrompt = `
 "summary": "探索アルゴリズムのひとつだよ。",\n
 "detail": "グラフ構造などにおいて、始点からの距離が最も近い箇所から順番に探索していく手法だよ。主にキューが使用されるよ。",\n
 "pronounce": "びーえふえす",\n
-"is_approved": "false"
+"is_approved": false
 }
 `;
 
@@ -58,7 +58,7 @@ if (!apiKey) {
 
 const ai = new GoogleGenAI({ apiKey });
 
-export async function askAI(word: string): Promise<DictionaryDraft | null> {
+export async function askAI(word: string): Promise<DictionaryEntry | null> {
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash-lite',
     contents: [{ role: 'user', parts: [{ text: `${structPrompt.replaceAll('{word}', word)}\n${personalityPrompt}\n${examplePrompt}` }] }],

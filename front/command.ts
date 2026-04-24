@@ -1,4 +1,4 @@
-import { CacheType, Interaction, REST, Routes, SlashCommandBuilder } from "discord.js";
+import { CacheType, Interaction, PermissionFlagsBits, REST, Routes, SlashCommandBuilder } from "discord.js";
 import { EditDetails, Envs } from "../back/interface.js";
 import { approve, editWord } from "../back/DB.js";
 import { unapprovedListUp } from "./commandHandler/unapproved.js";
@@ -23,6 +23,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('approve')
     .setDescription('指定した用語説明を承認します')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
     .addStringOption((option) =>
       option.setName('word')
         .setDescription('承認する単語')
@@ -36,6 +37,7 @@ const commands = [
         .setDescription('編集する単語')
         .setRequired(true),
     )
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
     .addStringOption((option) =>
       option.setName('pronounce')
         .setDescription('読み方'),
@@ -61,13 +63,15 @@ const commands = [
 
 export async function registerCommands(rest : REST, envs: Envs): Promise<void> {
   try {
-    if(!(!envs.clientId || !envs.guildId)){
+    if(envs.clientId && envs.guildId){
       await rest.put(
         Routes.applicationGuildCommands(envs.clientId, envs.guildId),
         { body: commands },
       );
+      console.log('スラッシュコマンドを登録しました');
+    } else {
+      console.error('clientIdまたはguildIdが未登録です');
     }
-    console.log('スラッシュコマンドを登録しました');
   } catch (error) {
     console.error('コマンド登録エラー:', error);
   }

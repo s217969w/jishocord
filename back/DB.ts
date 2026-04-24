@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
-import { DictionaryDraft, DictionaryEntry, EditDetails, InconsistentEntry } from './interface.js';
+import { DictionaryEntry, EditDetails, InconsistentEntry } from './interface.js';
 dotenv.config();
 
 
@@ -23,7 +23,7 @@ export async function addInconsistent(word: string, fix: string): Promise<void> 
   else console.log('Data:', data);
 }
 
-export async function addword(entryDetails: DictionaryDraft): Promise<void> {
+export async function addword(entryDetails: DictionaryEntry): Promise<void> {
   if (!entryDetails.word || !entryDetails.pronounce || !entryDetails.summary || !entryDetails.detail) {
     console.error('Error in DB.ts: 必須項目が不足');
     return;
@@ -91,6 +91,7 @@ export async function approve(word: string): Promise<200 | 404 | 500> {
     .from('dictionary')
     .update({ is_approved: true })
     .eq('word', word)
+    .eq('is_approved', false)
     .select();
 
   if (error) {
@@ -131,7 +132,7 @@ export async function editWord(editDetails: EditDetails): Promise<200 | 404 | 50
     .select();
 
   if (error) {
-    console.error('Error in approve():', error.message);
+    console.error('Error in editWord():', error.message);
     return 500;
   }
 
