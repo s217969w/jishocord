@@ -2,9 +2,11 @@
   "name": "jishocord",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
   "type": "module",
   "scripts": {
+    "dev": "tsx index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -24,6 +26,11 @@
     "dotenv": "^17.4.1",
     "zod": "^4.3.6",
     "zod-to-json-schema": "^3.25.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
   },
   "engines": {"node": ">=20"}
 }
