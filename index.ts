@@ -1,4 +1,5 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, Events, GatewayIntentBits, REST, type Message } from 'discord.js';
+import { approve } from './back/DB.js';
 import dotenv from 'dotenv';
 
 import { addInconsistent } from './back/DB.js';
@@ -77,6 +78,38 @@ client.on('messageCreate', async (message: Message) => {
   } catch (error) {
     console.error('処理中に問題が発生しました: ', error);
     await message.reply('ごめんなさい、エラーが発生しちゃいました...');
+  }
+});
+
+// メッセージコンポーネント（ボタン）インタラクションの処理
+client.on(Events.InteractionCreate, async (interaction) => {
+  if (!interaction.isButton()) return;
+  if (interaction.customId !== 'approve_button') return;
+
+  try {
+    // メッセージ本文から単語を抽出（前方の単語部分を取得）
+    const content = interaction.message.content;
+    // 例: 「word【pronounce】...」の形式なので、最初の行から単語を取得
+    const firstLine = content.split('\n')[0];
+    const word = firstLine.split('【')[0];
+    const result = await approve(word.trim());
+    if (result === 200) {
+      await interaction.update({
+        content: `${content}\n${word}の説明を承認しました。`,
+        components: []
+      });
+    } else {
+      await interaction.update({
+        content: 'エラーが発生しました。',
+        components: []
+      });
+    }
+  } catch (error) {
+    console.error('ボタン処理中に問題が発生しました: ', error);
+    await interaction.update({
+      content: '承認処理中にエラーが発生しました。',
+      components: []
+    });
   }
 });
 
