@@ -23,7 +23,7 @@ export async function addInconsistent(word: string, fix: string): Promise<void> 
   else console.log('Data:', data);
 }
 
-export async function addword(entryDetails: DictionaryEntry): Promise<void> {
+export async function addWord(entryDetails: DictionaryEntry): Promise<void> {
   if (!entryDetails.word || !entryDetails.pronounce || !entryDetails.summary || !entryDetails.detail) {
     console.error('Error in DB.ts: 必須項目が不足');
     return;
@@ -100,7 +100,7 @@ export async function approve(word: string): Promise<200 | 404 | 500> {
   }
 
   if (!data || data.length === 0) {
-    console.log('指定されたwordは存在しません');
+    console.log('未承認の単語に指定されたwordは存在しません。');
     return 404;
   }
 

@@ -2,7 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import { z } from 'zod';
 
-import { addword } from './DB.js';
+import { addWord } from './DB.js';
 import { DictionaryEntry } from './interface.js';
 
 dotenv.config();
@@ -90,6 +90,6 @@ export async function askAI(word: string): Promise<DictionaryEntry | null> {
   }
   data.is_approved = false; // 念のため
   console.log(data);
-  await addword(data);
+  await addWord(data);
   return data;
 }

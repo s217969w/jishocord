@@ -56,10 +56,10 @@ client.on('messageCreate', async (message: Message) => {
       return;
     }
 
-    if (inl[0] === 'fix' && inl.length === 3) {
-      await addInconsistent(inl[1], inl[2]);
-      return;
-    }
+    // if (inl[0] === 'fix' && inl.length === 3) {
+    //   await addInconsistent(inl[1], inl[2]);
+    //   return;
+    // }
 
     const word = inl.join(' ');
     const data = await generateData(word);

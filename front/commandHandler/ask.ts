@@ -1,4 +1,4 @@
-import { CacheType, ChatInputCommandInteraction, ButtonBuilder, ActionRowBuilder, ButtonStyle } from "discord.js";
+import { CacheType, ChatInputCommandInteraction, ButtonBuilder, ActionRowBuilder, ButtonStyle, PermissionsBitField } from "discord.js";
 import { approve, getTips } from "../../back/DB.js";
 import { askAI } from "../../back/AI.js";
 import { DictionaryEntry } from "../../back/interface.js";
@@ -24,14 +24,19 @@ export async function onAsked(interaction:ChatInputCommandInteraction<CacheType>
     try {
       const confirmation = await response.resource?.message?.awaitMessageComponent({ filter: collectorFilter });
       if (confirmation?.customId === 'approve') {
-        const result = await approve(word);
+        // ManageChannels権限を持っていない場合はreturn（権限がない人は承認できない）
+        if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.ManageChannels)) {
+          await confirmation.update({ content: '承認権限がありません。', components: [] });
+          return;
+        }
+        const result = await approve(data.word);
         if (result === 200) {
           await confirmation.update({ 
-            content: `${sendMessage}\n${word}の説明を承認しました。`,
+            content: `${sendMessage}\n${data.word}の説明を承認しました。`,
             components:[]
           });
         } else {
-          await confirmation.update({ content: 'エラーが発生しました。' });
+          await confirmation.update({ content: 'エラーが発生しました。', components:[] });
         }
         return;
       }
