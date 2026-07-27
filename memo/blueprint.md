@@ -108,3 +108,130 @@ AIが false を返した場合、エラーが発生して上手にハンドリ�
 
 ### 表記ゆれについて
 新規登録時に表記ゆれを3~4種類考えるようにプロンプトを修正する。出力された表記ゆれおよび元となる単語のうち、最も一般的なものを判定してもらう。他の単語からその単語に修正できるよう、表記ゆれのリストに格納。
+
+## 実装計画(抜粋)
+
+以降は、`blueprint-codex.md` より利用箇所を抜粋したものである。
+
+### フェーズ0: 仕様確定と基盤
+
+- 文字数、ローカル上限、権限、保持期間、審査責任者を確定する。
+- テスト環境とSupabaseマイグレーション運用を用意する。
+- 型付き結果、入力スキーマ、ログの相関IDを導入する。
+- AIの `false` を含む既知のエラーハンドリングを先に直す。
+
+### フェーズ1: DBのスコープ化と複数サーバー対応
+
+- 新データモデルとRow Level Securityを実装する。
+- 既存データをパブリック辞書へ移行する。
+- `guild_id` を通した検索、承認、編集、削除を実装する。
+- Discordコマンドを複数サーバーで利用可能にする。
+
+### 新データモデル
+
+既存テーブルを直接大きく変えるのではなく、マイグレーションを作り、既存データをパブリック辞書として移行する。主要テーブル案は次のとおり。
+
+#### `dictionary_entries`
+
+- `id`: UUID、主キー
+- `scope`: `public` または `local`
+- `guild_id`: ローカル時は必須、パブリック時は `null`
+- `word`, `full_word`, `japanese`, `summary`, `detail`, `pronounce`
+- `normalized_word`: 検索・重複判定用
+- `status`: `draft`、`pending`、`approved`、`rejected`
+- `source`: `human`、`ai`、`seed`
+- `created_by_discord_user_id`: 投稿者追跡用
+- `reviewed_by_discord_user_id`: 審査者追跡用。AI審査の場合は別途審査種別を記録
+- `review_comment`: 却下理由や確認事項
+- `created_at`, `updated_at`, `reviewed_at`
+
+制約として、`scope = local` なら `guild_id IS NOT NULL`、`scope = public` なら `guild_id IS NULL` を必須とする。承認済みデータの一意性は、パブリックでは `normalized_word`、ローカルでは `guild_id + normalized_word` を基準にする。
+
+#### `word_aliases`
+
+- `id`: UUID、主キー
+- `entry_id`: `dictionary_entries.id` への外部キー
+- `alias`: 表記ゆれ
+- `normalized_alias`: 検索用
+- `scope`, `guild_id`:検索範囲を明確にするため辞書項目と整合させる
+- `source`: `human` または `ai`
+
+エイリアスから別エイリアスへ連鎖させず、必ず辞書項目IDを直接参照する。これにより循環参照を防ぐ。
+
+#### `guild_settings`
+
+- `guild_id`: 主キー
+- `local_dictionary_enabled`
+- `local_entry_limit`: 初期値50
+- `public_submission_enabled`
+- `public_approval_enabled`
+- `blocked_at`, `blocked_reason`
+- `created_at`, `updated_at`
+
+MCCだけでパブリック承認を許可する場合は、環境変数ではなくこの設定で対象サーバーを明示する。
+
+#### `web_access_tokens`
+
+- `id`: UUID、主キー
+- `token_hash`: 生のトークンは保存しない
+- `purpose`: `add` または `manage`
+- `guild_id`, `discord_user_id`
+- `expires_at`, `used_at`, `revoked_at`
+
+登録URLは短時間だけ有効な単回利用トークンとする。管理URLは長寿命の共有URLにせず、アクセスのたびにDiscordから再発行する。
+
+#### `submission_events` と `audit_logs`
+
+投稿回数、AI審査結果、却下、編集、削除、承認、制限発動を記録する。荒らし判定と管理操作の追跡に使用し、説明本文など不要な個人情報は重複保存しない。
+
+### エラーハンドリング
+
+#### AIが `false` または説明不能を返す場合
+
+AI応答の正常系は「辞書項目」または `null` に限定し、文字列や真偽値の `false` はスキーマ不一致として扱う。ただし利用者には内部形式の問題を見せず、「説明対象外」と「一時的な障害」を分けて通知する。
+
+AI処理の結果型は、少なくとも次を判別できるようにする。
+
+- `generated`: 正常生成
+- `not_explainable`: 存在しない、不適切、説明不能
+- `invalid_response`: JSON不正、`false`、必須項目欠落、文字数超過
+- `rate_limited`: API上限
+- `timeout`: タイムアウト
+- `external_error`: その他のGemini障害
+
+`not_explainable` は再試行せず、穏当な案内を返す。`invalid_response`、`rate_limited`、`timeout` は指数バックオフ付きで最大回数を決めて再試行し、それでも失敗したら保存しない。AI生成とDB保存は別結果として扱い、保存失敗を生成成功として返さない。
+
+### さらなる安全性
+
+#### 入力・出力制限
+
+文字数はDiscord、Web、API、DBの全層で同じ定数を基準に検証する。初期値案は次のとおりとし、Discordのメッセージ上限内に注記も含めて収まることを自動テストする。
+
+- `word`: 1〜80文字
+- `pronounce`: 1〜120文字
+- `full_word`: 200文字以下
+- `japanese`: 200文字以下
+- `summary`: 200文字以下
+- `detail`: 800文字以下
+- 表記ゆれ: 1件80文字以下、1項目につき最大4件
+
+空白の除去、Unicode正規化、制御文字・不可視文字の拒否を行う。AIの出力にも同じスキーマを適用し、超過時は保存せず再生成または審査待ちとする。SQLインジェクション対策だけでなく、Discordメンションの無効化、Web表示時のエスケープ、URLスキーム制限も行う。
+
+#### 投稿制限と利用制限
+
+- 利用者単位、サーバー単位、IP単位で時間窓ごとの投稿上限を設ける。
+- パブリック投稿には日次上限を設け、同一正規化語の連続投稿を拒否する。
+- AI呼び出しにも利用者・サーバー単位の上限、タイムアウト、同時実行数制限を設ける。
+- 却下率、短時間の連続投稿、重複投稿をリスク指標として記録する。
+- 自動停止はまずパブリック新規投稿だけを対象とし、辞書検索まで直ちに止めない。
+- サーバー全体の利用停止は運営者が証跡を確認して実行し、理由、期限、異議申し立て先を表示する。
+
+Botのトークン、Supabaseサービスロールキー、Gemini APIキーはサーバー環境だけに置く。ログにはトークン、秘密情報、WebアクセスURL全文を出さない。SupabaseではRow Level Securityを有効化し、サービスロールを使う処理にもアプリ側で `guild_id` 条件を必須とする。
+
+#### 受け入れ条件
+
+- Web、Discord、直接API呼び出しのいずれでも上限超過を保存できない。
+- メンション文字列を登録してもBotの返信で通知が発生しない。
+- 投稿制限時に待機時間または解除条件が表示される。
+- 制限、解除、承認、編集、削除を監査ログから追跡できる。
+

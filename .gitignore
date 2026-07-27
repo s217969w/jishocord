@@ -2,4 +2,5 @@ node_modules
 config.json
 .env
 ts_refact
+memo/blueprint-codex.md
 AGENT.md
