@@ -1,9 +1,18 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type PostgrestError } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
-import { DictionaryEntry, EditDetails, InconsistentEntry } from './interface.js';
+import {
+  AppResult,
+  DictionaryContext,
+  DictionaryEntry,
+  DictionaryInput,
+  DictionaryScope,
+  EditDetails,
+  GuildSettings,
+} from './interface.js';
+import { createLogContext, logError } from './logger.js';
+import { dictionaryInputSchema, editDetailsSchema, normalizeWord } from './validation.js';
+
 dotenv.config();
-
-
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY;
@@ -12,130 +21,285 @@ if (!supabaseUrl || !supabaseSecretKey) {
   throw new Error('SUPABASE_URL または SUPABASE_SECRET_KEY が設定されていません');
 }
 
-const supabase = createClient(supabaseUrl, supabaseSecretKey);
+const supabase = createClient(supabaseUrl, supabaseSecretKey, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
 
-export async function addInconsistent(word: string, fix: string): Promise<void> {
-  const { data, error } = await supabase
-    .from('inconsistent')
-    .insert([{ word, fix }]);
-
-  if (error) console.error('Error in DB.ts:', error.message);
-  else console.log('Data:', data);
+interface DictionaryRow {
+  id: string;
+  scope: DictionaryScope;
+  guild_id: string | null;
+  word: string;
+  pronounce: string;
+  full_word: string | null;
+  japanese: string | null;
+  summary: string;
+  detail: string;
+  normalized_word: string;
+  status: DictionaryEntry['status'];
+  source: DictionaryEntry['source'];
+  created_by_discord_user_id: string | null;
+  reviewed_by_discord_user_id: string | null;
+  review_comment: string | null;
+  created_at: string;
+  updated_at: string;
+  reviewed_at: string | null;
 }
 
-export async function addWord(entryDetails: DictionaryEntry): Promise<void> {
-  if (!entryDetails.word || !entryDetails.pronounce || !entryDetails.summary || !entryDetails.detail) {
-    console.error('Error in DB.ts: 必須項目が不足');
-    return;
-  }
-
-  const { data, error } = await supabase
-    .from('dictionary')
-    .insert([
-      {
-        word: entryDetails.word,
-        pronounce: entryDetails.pronounce,
-        fullWord: entryDetails.fullWord,
-        Japanese: entryDetails.Japanese,
-        summary: entryDetails.summary,
-        detail: entryDetails.detail,
-        is_approved: false,
-      },
-    ]);
-
-  if (error) console.error('Error in addword:', error.message);
-  else console.log('Data:', data);
+interface GuildSettingsRow {
+  guild_id: string;
+  local_dictionary_enabled: boolean;
+  local_entry_limit: number;
+  public_submission_enabled: boolean;
+  public_approval_enabled: boolean;
+  blocked_at: string | null;
+  blocked_reason: string | null;
 }
 
-export async function getTips(word: string): Promise<DictionaryEntry | null> {
-  const { data: inconsistent, error } = await supabase
-    .from('inconsistent')
-    .select()
-    .eq('word', word);
-
-  if (error) console.error('Error:', error.message);
-
-  const fixedWord = inconsistent && inconsistent.length === 1 ? (inconsistent[0] as InconsistentEntry).fix : word;
-
-  const { data, error: error2 } = await supabase
-    .from('dictionary')
-    .select()
-    .eq('word', fixedWord);
-
-  if (error2) {
-    console.error('Error in getTips:', error2.message);
-    return null;
-  }
-
-  if (!data || data.length === 0) return null;
-  return data[0] as DictionaryEntry;
-}
-
-export async function getUnapproved(): Promise<Array<Pick<DictionaryEntry, 'word'>>> {
-  const { data, error } = await supabase
-    .from('dictionary')
-    .select('word')
-    .eq('is_approved', false);
-
-  if (error) {
-    console.error('Error in getUnapproved():', error.message);
-    return [];
-  }
-
-  console.log(data);
-  return (data ?? []) as Array<Pick<DictionaryEntry, 'word'>>;
-}
-
-export async function approve(word: string): Promise<200 | 404 | 500> {
-  const { data, error } = await supabase
-    .from('dictionary')
-    .update({ is_approved: true })
-    .eq('word', word)
-    .eq('is_approved', false)
-    .select();
-
-  if (error) {
-    console.error('Error in approve():', error.message);
-    return 500;
-  }
-
-  if (!data || data.length === 0) {
-    console.log('未承認の単語に指定されたwordは存在しません。');
-    return 404;
-  }
-
-  console.log(data);
-  return 200;
-}
-
-export async function editWord(editDetails: EditDetails): Promise<200 | 404 | 500> {
-  const before = await getTips(editDetails.word);
-  if (!before) {
-    console.log('指定されたwordは存在しません');
-    return 404;
-  }
-
-  const updateDetail: DictionaryEntry = {
-    word:editDetails.word,
-    pronounce: editDetails.pronounce ?? before.pronounce,
-    fullWord: editDetails.fullWord ?? before.fullWord,
-    Japanese: editDetails.Japanese ?? before.Japanese,
-    summary: editDetails.summary ?? before.summary,
-    detail: editDetails.detail ?? before.detail,
-    is_approved: before.is_approved
+function toEntry(row: DictionaryRow): DictionaryEntry {
+  return {
+    id: row.id,
+    scope: row.scope,
+    guildId: row.guild_id,
+    word: row.word,
+    pronounce: row.pronounce,
+    fullWord: row.full_word,
+    Japanese: row.japanese,
+    summary: row.summary,
+    detail: row.detail,
+    normalizedWord: row.normalized_word,
+    status: row.status,
+    source: row.source,
+    createdByDiscordUserId: row.created_by_discord_user_id,
+    reviewedByDiscordUserId: row.reviewed_by_discord_user_id,
+    reviewComment: row.review_comment,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    reviewedAt: row.reviewed_at,
   };
+}
 
+function databaseFailure<T>(operation: string, error: PostgrestError): AppResult<T> {
+  logError(createLogContext(operation), error);
+  if (error.code === '23505') {
+    return { ok: false, error: 'duplicate', message: '同じ単語が既に登録されています。' };
+  }
+  if (error.code === 'P0001' && error.message.includes('local_entry_limit_exceeded')) {
+    return { ok: false, error: 'limit_exceeded', message: 'ローカル辞書の登録上限に達しています。' };
+  }
+  return { ok: false, error: 'external_error', message: '辞書データベースを利用できません。' };
+}
+
+export async function ensureGuildSettings(guildId: string): Promise<AppResult<GuildSettings>> {
   const { data, error } = await supabase
-    .from('dictionary')
-    .update(updateDetail)
-    .eq('word', editDetails.word)
-    .select();
+    .from('guild_settings')
+    .upsert({ guild_id: guildId }, { onConflict: 'guild_id' })
+    .select()
+    .single();
 
-  if (error) {
-    console.error('Error in editWord():', error.message);
-    return 500;
+  if (error) return databaseFailure('ensureGuildSettings', error);
+  const row = data as GuildSettingsRow;
+  return {
+    ok: true,
+    value: {
+      guildId: row.guild_id,
+      localDictionaryEnabled: row.local_dictionary_enabled,
+      localEntryLimit: row.local_entry_limit,
+      publicSubmissionEnabled: row.public_submission_enabled,
+      publicApprovalEnabled: row.public_approval_enabled,
+      blockedAt: row.blocked_at,
+      blockedReason: row.blocked_reason,
+    },
+  };
+}
+
+export async function markGuildDeparted(guildId: string): Promise<AppResult<null>> {
+  const { error } = await supabase
+    .from('guild_settings')
+    .update({ departed_at: new Date().toISOString() })
+    .eq('guild_id', guildId);
+  if (error) return databaseFailure('markGuildDeparted', error);
+  return { ok: true, value: null };
+}
+
+export async function addWord(
+  entryDetails: DictionaryInput,
+  context: DictionaryContext,
+  scope: DictionaryScope = 'public',
+): Promise<AppResult<DictionaryEntry>> {
+  const parsed = dictionaryInputSchema.safeParse(entryDetails);
+  if (!parsed.success) {
+    return { ok: false, error: 'invalid_input', message: parsed.error.issues[0]?.message ?? '入力が不正です。' };
+  }
+  if (scope === 'local' && !context.guildId) {
+    return { ok: false, error: 'invalid_input', message: 'ローカル辞書にはサーバーIDが必要です。' };
   }
 
-  console.log(data);
-  return 200;
+  const { data, error } = await supabase
+    .from('dictionary_entries')
+    .insert({
+      scope,
+      guild_id: scope === 'local' ? context.guildId : null,
+      word: parsed.data.word,
+      normalized_word: normalizeWord(parsed.data.word),
+      pronounce: parsed.data.pronounce,
+      full_word: parsed.data.fullWord,
+      japanese: parsed.data.Japanese,
+      summary: parsed.data.summary,
+      detail: parsed.data.detail,
+      status: 'pending',
+      source: 'ai',
+      created_by_discord_user_id: context.discordUserId ?? null,
+    })
+    .select()
+    .single();
+
+  if (error) return databaseFailure('addWord', error);
+  return { ok: true, value: toEntry(data as DictionaryRow) };
+}
+
+async function findInScope(normalized: string, guildId: string | null): Promise<AppResult<DictionaryEntry | null>> {
+  let query = supabase
+    .from('dictionary_entries')
+    .select()
+    .eq('normalized_word', normalized)
+    .eq('status', 'approved');
+
+  query = guildId ? query.eq('scope', 'local').eq('guild_id', guildId) : query.eq('scope', 'public').is('guild_id', null);
+  const { data, error } = await query.maybeSingle();
+  if (error) return databaseFailure('findInScope', error);
+  if (data) return { ok: true, value: toEntry(data as DictionaryRow) };
+
+  let aliasQuery = supabase
+    .from('word_aliases')
+    .select('dictionary_entries(*)')
+    .eq('normalized_alias', normalized);
+  aliasQuery = guildId
+    ? aliasQuery.eq('scope', 'local').eq('guild_id', guildId)
+    : aliasQuery.eq('scope', 'public').is('guild_id', null);
+  const aliasResult = await aliasQuery.maybeSingle();
+  if (aliasResult.error) return databaseFailure('findAliasInScope', aliasResult.error);
+  const related = aliasResult.data?.dictionary_entries;
+  if (!related || Array.isArray(related) || (related as DictionaryRow).status !== 'approved') {
+    return { ok: true, value: null };
+  }
+  return { ok: true, value: toEntry(related as DictionaryRow) };
+}
+
+export async function getTips(word: string, guildId: string | null): Promise<AppResult<DictionaryEntry | null>> {
+  const normalized = normalizeWord(word);
+  if (guildId) {
+    const local = await findInScope(normalized, guildId);
+    if (!local.ok || local.value) return local;
+  }
+  return findInScope(normalized, null);
+}
+
+export async function getUnapproved(guildId: string | null): Promise<AppResult<Array<Pick<DictionaryEntry, 'word' | 'scope'>>>> {
+  let query = supabase
+    .from('dictionary_entries')
+    .select('word,scope')
+    .eq('status', 'pending')
+    .limit(50);
+  query = guildId
+    ? query.or(`scope.eq.public,and(scope.eq.local,guild_id.eq.${guildId})`)
+    : query.eq('scope', 'public');
+  const { data, error } = await query;
+  if (error) return databaseFailure('getUnapproved', error);
+  return { ok: true, value: (data ?? []) as Array<Pick<DictionaryEntry, 'word' | 'scope'>> };
+}
+
+export async function canApprovePublic(guildId: string | null): Promise<boolean> {
+  if (!guildId) return false;
+  const settings = await ensureGuildSettings(guildId);
+  return settings.ok && settings.value.publicApprovalEnabled && !settings.value.blockedAt;
+}
+
+export async function approve(
+  word: string,
+  context: DictionaryContext,
+  scope: DictionaryScope,
+): Promise<AppResult<DictionaryEntry>> {
+  if (scope === 'local' && !context.guildId) {
+    return { ok: false, error: 'forbidden', message: '対象サーバーを確認できません。' };
+  }
+  if (scope === 'public' && !(await canApprovePublic(context.guildId))) {
+    return { ok: false, error: 'forbidden', message: 'このサーバーではパブリック辞書を承認できません。' };
+  }
+
+  let query = supabase
+    .from('dictionary_entries')
+    .update({
+      status: 'approved',
+      reviewed_by_discord_user_id: context.discordUserId ?? null,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq('normalized_word', normalizeWord(word))
+    .eq('status', 'pending')
+    .eq('scope', scope);
+  query = scope === 'local' ? query.eq('guild_id', context.guildId) : query.is('guild_id', null);
+  const { data, error } = await query.select().maybeSingle();
+  if (error) return databaseFailure('approve', error);
+  if (!data) return { ok: false, error: 'not_found', message: '未承認の単語が見つかりません。' };
+  return { ok: true, value: toEntry(data as DictionaryRow) };
+}
+
+export async function editWord(
+  editDetails: EditDetails,
+  context: DictionaryContext,
+  scope: DictionaryScope,
+): Promise<AppResult<DictionaryEntry>> {
+  const parsed = editDetailsSchema.safeParse(editDetails);
+  if (!parsed.success) {
+    return { ok: false, error: 'invalid_input', message: parsed.error.issues[0]?.message ?? '入力が不正です。' };
+  }
+  if (scope === 'local' && !context.guildId) {
+    return { ok: false, error: 'forbidden', message: '対象サーバーを確認できません。' };
+  }
+  if (scope === 'public' && !(await canApprovePublic(context.guildId))) {
+    return { ok: false, error: 'forbidden', message: 'このサーバーではパブリック辞書を編集できません。' };
+  }
+
+  const updates = Object.fromEntries(
+    Object.entries({
+      pronounce: parsed.data.pronounce,
+      full_word: parsed.data.fullWord,
+      japanese: parsed.data.Japanese,
+      summary: parsed.data.summary,
+      detail: parsed.data.detail,
+    }).filter(([, value]) => value !== null),
+  );
+  let query = supabase
+    .from('dictionary_entries')
+    .update(updates)
+    .eq('normalized_word', normalizeWord(parsed.data.word))
+    .eq('scope', scope);
+  query = scope === 'local' ? query.eq('guild_id', context.guildId) : query.is('guild_id', null);
+  const { data, error } = await query.select().maybeSingle();
+  if (error) return databaseFailure('editWord', error);
+  if (!data) return { ok: false, error: 'not_found', message: '単語が見つかりません。' };
+  return { ok: true, value: toEntry(data as DictionaryRow) };
+}
+
+export async function deleteWord(
+  word: string,
+  context: DictionaryContext,
+  scope: DictionaryScope,
+): Promise<AppResult<null>> {
+  if (scope === 'local' && !context.guildId) {
+    return { ok: false, error: 'forbidden', message: '対象サーバーを確認できません。' };
+  }
+  if (scope === 'public' && !(await canApprovePublic(context.guildId))) {
+    return { ok: false, error: 'forbidden', message: 'このサーバーではパブリック辞書を削除できません。' };
+  }
+  let query = supabase
+    .from('dictionary_entries')
+    .delete()
+    .eq('normalized_word', normalizeWord(word))
+    .eq('scope', scope);
+  query = scope === 'local' ? query.eq('guild_id', context.guildId) : query.is('guild_id', null);
+  const { data, error } = await query.select('id');
+  if (error) return databaseFailure('deleteWord', error);
+  if (!data?.length) return { ok: false, error: 'not_found', message: '単語が見つかりません。' };
+  return { ok: true, value: null };
 }

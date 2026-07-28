@@ -1,116 +1,73 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, Events, GatewayIntentBits, REST, type Message } from 'discord.js';
-import { approve } from './back/DB.js';
+import { Client, Events, GatewayIntentBits, REST, type Message } from 'discord.js';
 import dotenv from 'dotenv';
-
-import { addInconsistent } from './back/DB.js';
+import { ensureGuildSettings, markGuildDeparted } from './back/DB.js';
 import { Envs } from './back/interface.js';
 import { interactionHandler, registerCommands } from './front/command.js';
 import { generateData, makeReply } from './front/commandHandler/ask.js';
 
 dotenv.config();
 
-const envs : Envs = {
+const registration = process.env.DISCORD_COMMAND_REGISTRATION === 'guild' ? 'guild' : 'global';
+const envs: Envs = {
   token: process.env.DISCORD_TOKEN,
   clientId: process.env.DISCORD_CLIENT_ID,
-  guildId: process.env.DISCORD_GUILD_ID
-}
+  guildId: process.env.DISCORD_GUILD_ID,
+  commandRegistration: registration,
+};
 
-if (!envs.token || !envs.clientId || !envs.guildId) {
-  console.error('DISCORD_TOKEN, DISCORD_CLIENT_ID, または DISCORD_GUILD_ID が設定されていません。');
+if (!envs.token || !envs.clientId || (registration === 'guild' && !envs.guildId)) {
+  console.error('Discordの必須環境変数が設定されていません。');
   process.exit(1);
 }
 
-
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-  ],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
 });
-
 const rest = new REST({ version: '10' }).setToken(envs.token);
-
 
 client.once(Events.ClientReady, async () => {
   console.log('ボットが起動したよ');
   await registerCommands(rest, envs);
-});
-
-client.on(Events.InteractionCreate, async (interaction) => {
-  await interactionHandler(interaction);
-});
-
-client.on('messageCreate', async (message: Message) => {
-  if (message.author.bot) return;
-
-  const botUserId = client.user?.id;
-  if (!botUserId || !message.mentions.has(botUserId)) return;
-
-  const inl = message.content.split(' ');
-  inl.shift();
-
-  try {
-    if (inl.length === 0) {
-      await message.reply('こんにちは。呼びましたか？');
-      return;
-    }
-
-    // if (inl[0] === 'fix' && inl.length === 3) {
-    //   await addInconsistent(inl[1], inl[2]);
-    //   return;
-    // }
-
-    const word = inl.join(' ');
-    const data = await generateData(word);
-    const sendMessage = await makeReply(data);
-    if(data?.is_approved === false) {
-      const button = new ButtonBuilder()
-        .setCustomId("approve_button")
-        .setLabel("承認")
-        .setStyle(ButtonStyle.Success);
-      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(button);
-      await message.reply({ content:sendMessage, components:[row] });
-    } else {
-      await message.reply({ content:sendMessage });
-    }
-
-  } catch (error) {
-    console.error('処理中に問題が発生しました: ', error);
-    await message.reply('ごめんなさい、エラーが発生しちゃいました...');
+  for (const guild of client.guilds.cache.values()) {
+    const result = await ensureGuildSettings(guild.id);
+    if (!result.ok) console.error(`サーバー設定の初期化に失敗しました: ${guild.id}`);
   }
 });
 
-// メッセージコンポーネント（ボタン）インタラクションの処理
-client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isButton()) return;
-  if (interaction.customId !== 'approve_button') return;
+client.on(Events.GuildCreate, async (guild) => {
+  const result = await ensureGuildSettings(guild.id);
+  if (!result.ok) console.error(`サーバー設定の初期化に失敗しました: ${guild.id}`);
+});
 
+client.on(Events.GuildDelete, async (guild) => {
+  const result = await markGuildDeparted(guild.id);
+  if (!result.ok) console.error(`サーバー退出の記録に失敗しました: ${guild.id}`);
+});
+
+client.on(Events.InteractionCreate, interactionHandler);
+
+client.on(Events.MessageCreate, async (message: Message) => {
+  if (message.author.bot || !client.user || !message.mentions.has(client.user.id)) return;
+  const word = message.content.replace(new RegExp(`<@!?${client.user.id}>`, 'gu'), '').trim();
+  if (!word) {
+    await message.reply({ content: 'こんにちは。呼びましたか？', allowedMentions: { repliedUser: false } });
+    return;
+  }
   try {
-    // メッセージ本文から単語を抽出（前方の単語部分を取得）
-    const content = interaction.message.content;
-    // 例: 「word【pronounce】...」の形式なので、最初の行から単語を取得
-    const firstLine = content.split('\n')[0];
-    const word = firstLine.split('【')[0];
-    const result = await approve(word.trim());
-    if (result === 200) {
-      await interaction.update({
-        content: `${content}\n${word}の説明を承認しました。`,
-        components: []
-      });
-    } else {
-      await interaction.update({
-        content: 'エラーが発生しました。',
-        components: []
-      });
-    }
+    const result = await generateData(word, message.guildId, message.author.id);
+    const content = result.type === 'found'
+      ? makeReply(result.entry)
+      : result.type === 'not_explainable'
+        ? 'ごめんなさい、その言葉は説明できなかったよ。'
+        : result.message;
+    await message.reply({ content, allowedMentions: { parse: [], repliedUser: false } });
   } catch (error) {
-    console.error('ボタン処理中に問題が発生しました: ', error);
-    await interaction.update({
-      content: '承認処理中にエラーが発生しました。',
-      components: []
-    });
+    console.error('メッセージ処理中に問題が発生しました:', error);
+    await message.reply({ content: 'ごめんなさい、一時的なエラーが発生しました。', allowedMentions: { repliedUser: false } });
   }
 });
+
+process.on('unhandledRejection', (error) => console.error('Unhandled rejection:', error));
+process.on('uncaughtException', (error) => console.error('Uncaught exception:', error));
 
 client.login(envs.token);

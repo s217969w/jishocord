@@ -1,84 +1,74 @@
-import { CacheType, ChatInputCommandInteraction, ButtonBuilder, ActionRowBuilder, ButtonStyle, PermissionsBitField } from "discord.js";
-import { approve, getTips } from "../../back/DB.js";
-import { askAI } from "../../back/AI.js";
-import { DictionaryEntry } from "../../back/interface.js";
+import { CacheType, ChatInputCommandInteraction } from 'discord.js';
+import { askAI } from '../../back/AI.js';
+import { addWord, getTips } from '../../back/DB.js';
+import { AiResult, AppResult, DictionaryEntry } from '../../back/interface.js';
+import { neutralizeDiscordMentions } from '../../back/validation.js';
 
-// '/ask' が使用されたとき用
-export async function onAsked(interaction:ChatInputCommandInteraction<CacheType>) {
+export type GenerateResult =
+  | { type: 'found'; entry: DictionaryEntry }
+  | { type: 'not_explainable' }
+  | { type: 'temporary_error'; message: string };
+
+export async function generateData(
+  word: string,
+  guildId: string | null,
+  discordUserId?: string,
+): Promise<GenerateResult> {
+  const found = await getTips(word, guildId);
+  if (!found.ok) return { type: 'temporary_error', message: found.message };
+  if (found.value) return { type: 'found', entry: found.value };
+
+  const generated = await askAI(word);
+  if (generated.type === 'not_explainable') return { type: 'not_explainable' };
+  if (generated.type !== 'generated') return aiFailureToUi(generated);
+
+  const saved = await addWord(generated.entry, { guildId, discordUserId }, 'public');
+  if (!saved.ok) return saveFailureToUi(saved);
+  return { type: 'found', entry: saved.value };
+}
+
+function aiFailureToUi(result: Exclude<AiResult, { type: 'generated' } | { type: 'not_explainable' }>): GenerateResult {
+  if (result.type === 'rate_limited') {
+    return { type: 'temporary_error', message: 'ただいま説明の生成が混み合っています。少し待ってから試してね。' };
+  }
+  if (result.type === 'timeout') {
+    return { type: 'temporary_error', message: '説明の生成が時間内に終わりませんでした。もう一度試してね。' };
+  }
+  return { type: 'temporary_error', message: '説明を生成できませんでした。時間をおいて試してね。' };
+}
+
+function saveFailureToUi(result: Extract<AppResult<DictionaryEntry>, { ok: false }>): GenerateResult {
+  if (result.error === 'duplicate') {
+    return { type: 'temporary_error', message: '同じ単語が先に登録されました。もう一度検索してね。' };
+  }
+  return { type: 'temporary_error', message: '説明は作れましたが、保存できませんでした。時間をおいて試してね。' };
+}
+
+export function makeReply(data: DictionaryEntry): string {
+  let description = `${data.word}【${data.pronounce}】\n\n`;
+  if (data.fullWord !== null) {
+    description += data.fullWord;
+    if (data.Japanese !== null) description += `, ${data.Japanese}`;
+    description += '\n\n';
+  }
+  description += `${data.summary}\n${data.detail}`;
+  if (data.status !== 'approved') {
+    description += '\n※これはAIで作った未承認の説明だよ。権限のある人が内容を確認してね。';
+  }
+  return neutralizeDiscordMentions(description);
+}
+
+export async function onAsked(interaction: ChatInputCommandInteraction<CacheType>): Promise<void> {
+  await interaction.deferReply({ flags: 'Ephemeral' });
   const word = interaction.options.getString('word', true);
-  const data = await generateData(word);
-  const sendMessage = await makeReply(data);
-  if(data?.is_approved === false) {
-    const button = new ButtonBuilder()
-      .setCustomId("approve")
-      .setLabel("承認")
-      .setStyle(ButtonStyle.Success);
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(button);
-    const response = await interaction.reply({ 
-      content:sendMessage,
-      flags:'Ephemeral',
-      components:[row],
-      withResponse: true,
-    });
-    const collectorFilter = (i: any) => i.user.id === interaction.user.id;
-    try {
-      const confirmation = await response.resource?.message?.awaitMessageComponent({ filter: collectorFilter });
-      if (confirmation?.customId === 'approve') {
-        // ManageChannels権限を持っていない場合はreturn（権限がない人は承認できない）
-        if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.ManageChannels)) {
-          await confirmation.update({ content: '承認権限がありません。', components: [] });
-          return;
-        }
-        const result = await approve(data.word);
-        if (result === 200) {
-          await confirmation.update({ 
-            content: `${sendMessage}\n${data.word}の説明を承認しました。`,
-            components:[]
-          });
-        } else {
-          await confirmation.update({ content: 'エラーが発生しました。', components:[] });
-        }
-        return;
-      }
-    } catch {
-      await interaction.editReply({ content: 'Confirmation not received within 1 minute, cancelling', components: [] });
-    }
-  } else {
-    await interaction.reply({ content:sendMessage, flags:'Ephemeral' });
+  const result = await generateData(word, interaction.guildId, interaction.user.id);
+  if (result.type === 'not_explainable') {
+    await interaction.editReply('ごめんなさい、その言葉は説明できなかったよ。');
+    return;
   }
-  return;
-}
-
-// 返信文を作って返す
-export async function generateData(word: string): Promise<DictionaryEntry | null> {
-  let data = await getTips(word);
-
-  if (!data) {
-    data = await askAI(word);
+  if (result.type === 'temporary_error') {
+    await interaction.editReply(result.message);
+    return;
   }
-  return data;
-}
-
-export async function makeReply(data: DictionaryEntry | null): Promise<string> {
-  if(data === null) return 'ごめんなさい、調べたけど分からなかった...';
-  let desc = '';
-  desc += data.word;
-  desc += `【${data.pronounce}】\n\n`;
-
-  if (data.fullWord != null) {
-    desc += data.fullWord;
-    if (data.Japanese != null) desc += `, ${data.Japanese}`;
-    desc += '\n\n';
-  }
-
-  desc += `${data.summary}\n`;
-  desc += data.detail;
-
-  if (data.is_approved === false) {
-    desc += `\n※これはAIで作った説明で、未承認だよ。
-この説明で大丈夫ならボタンか\`/approve\`で承認しておいてね。
-もし間違ってたら\`/edit\`から教えて。`;
-  }
-
-  return desc;
+  await interaction.editReply({ content: makeReply(result.entry), allowedMentions: { parse: [] } });
 }
