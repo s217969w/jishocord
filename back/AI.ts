@@ -16,11 +16,27 @@ Japanese: 正式名称が英語の場合の日本語訳（なければnull）
 summary: 概要を一文で簡潔に
 detail: 詳細を簡単に2〜3文で
 pronounce: 単語の読み方をすべて平仮名で出力
+canonicalWord: 入力語とaliasesを含む候補のうち、最も一般的な正規表記
+aliases: 表記ゆれを0〜4件。大小文字、全角・半角、空白・ハイフン、略称、カタカナ表記、などに限定し、関連語や意味の異なる語を含めない
 存在しない、説明できない、または不適切な用語の場合はnullを返してください。
 summaryとdetailは、知的で落ち着いた少女の親しみやすい口調にし、正確性を優先してください。
 `;
 
-const retryableTypes = new Set<AiResult['type']>(['invalid_response', 'rate_limited', 'timeout']);
+const examplePrompt = `
+出力例:
+{
+  "word": "BFS",
+  "fullWord": "Breadth First Search",
+  "Japanese": "幅優先探索",
+  "summary": "探索アルゴリズムのひとつだよ。",
+  "detail": "グラフ構造などで、始点から近い頂点を順番に探索する手法だよ。主にキューを使うよ。",
+  "pronounce": "びーえふえす",
+  "canonicalWord": "BFS",
+  "aliases": ["bfs", "ビーエフエス", "幅優先探索", "幅優先"]
+}
+`;
+
+const retryableTypes = new Set<AiResult['type']>(['invalid_response', 'rate_limited', 'unavailable', 'timeout']);
 const maxAttempts = 3;
 
 function classifyError(error: unknown): Exclude<AiResult, { type: 'generated' } | { type: 'not_explainable' }> {
@@ -28,6 +44,9 @@ function classifyError(error: unknown): Exclude<AiResult, { type: 'generated' } 
   const status = typeof error === 'object' && error !== null && 'status' in error ? Number(error.status) : undefined;
   if (status === 429 || /429|rate.?limit|resource exhausted/iu.test(message)) {
     return { type: 'rate_limited', message };
+  }
+  if (status === 503 || /503|high demand|temporarily overloaded|model is overloaded|\bUNAVAILABLE\b/iu.test(message)) {
+    return { type: 'unavailable', message };
   }
   if (/timeout|timed out|abort/iu.test(message)) {
     return { type: 'timeout', message };
@@ -65,10 +84,10 @@ export async function askAI(word: string): Promise<AiResult> {
     try {
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-lite',
-        contents: [{ role: 'user', parts: [{ text: structPrompt.replaceAll('{word}', word) }] }],
+        contents: [{ role: 'user', parts: [{ text: `${structPrompt.replaceAll('{word}', word)}\n${examplePrompt}` }] }],
         config: {
           responseMimeType: 'application/json',
-          responseJsonSchema: z.toJSONSchema(responseSchema),
+          responseJsonSchema: z.toJSONSchema(responseSchema, { io: 'input' }),
           httpOptions: { timeout: 10_000 },
         },
       });
@@ -82,7 +101,7 @@ export async function askAI(word: string): Promise<AiResult> {
       return result;
     }
     if (attempt < maxAttempts - 1) {
-      await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
+      await new Promise((resolve) => setTimeout(resolve, 1_000 * 2 ** attempt));
     } else {
       logError(context, result.message);
       return result;

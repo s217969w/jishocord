@@ -1,11 +1,12 @@
 import { CacheType, ChatInputCommandInteraction } from 'discord.js';
 import { askAI } from '../../back/AI.js';
 import { addWord, getTips } from '../../back/DB.js';
-import { AiResult, AppResult, DictionaryEntry } from '../../back/interface.js';
+import { AiResult, AppResult, DictionaryEntry, DictionaryScope } from '../../back/interface.js';
 import { neutralizeDiscordMentions } from '../../back/validation.js';
 
 export type GenerateResult =
   | { type: 'found'; entry: DictionaryEntry }
+  | { type: 'already_exists'; entry: DictionaryEntry }
   | { type: 'not_explainable' }
   | { type: 'temporary_error'; message: string };
 
@@ -27,12 +28,36 @@ export async function generateData(
   return { type: 'found', entry: saved.value };
 }
 
+export async function registerGeneratedWord(
+  word: string,
+  guildId: string | null,
+  discordUserId: string,
+  scope: DictionaryScope,
+): Promise<GenerateResult> {
+  const existing = await getTips(word, guildId);
+  if (!existing.ok) return { type: 'temporary_error', message: existing.message };
+  if (existing.value) return { type: 'already_exists', entry: existing.value };
+
+  const generated = await askAI(word);
+  if (generated.type === 'not_explainable') return { type: 'not_explainable' };
+  if (generated.type !== 'generated') return aiFailureToUi(generated);
+  const saved = await addWord(generated.entry, { guildId, discordUserId }, scope);
+  if (!saved.ok) return saveFailureToUi(saved);
+  return { type: 'found', entry: saved.value };
+}
+
 function aiFailureToUi(result: Exclude<AiResult, { type: 'generated' } | { type: 'not_explainable' }>): GenerateResult {
   if (result.type === 'rate_limited') {
     return { type: 'temporary_error', message: 'ただいま説明の生成が混み合っています。少し待ってから試してね。' };
   }
   if (result.type === 'timeout') {
     return { type: 'temporary_error', message: '説明の生成が時間内に終わりませんでした。もう一度試してね。' };
+  }
+  if (result.type === 'unavailable') {
+    return {
+      type: 'temporary_error',
+      message: 'いまAIが混み合っているみたい。少し待ってから、もう一度試してね。',
+    };
   }
   return { type: 'temporary_error', message: '説明を生成できませんでした。時間をおいて試してね。' };
 }
@@ -53,6 +78,12 @@ export function makeReply(data: DictionaryEntry): string {
   }
   description += `${data.summary}\n${data.detail}`;
   if (data.status !== 'approved') {
+    if (data.canonicalWordCandidate) {
+      description += `\n正規語候補: ${data.canonicalWordCandidate}`;
+    }
+    if (data.aliasCandidates.length) {
+      description += `\n表記ゆれ候補: ${data.aliasCandidates.join(', ')}`;
+    }
     description += '\n※これはAIで作った未承認の説明だよ。権限のある人が内容を確認してね。';
   }
   return neutralizeDiscordMentions(description);

@@ -34,6 +34,8 @@ export interface DictionaryEntry {
   createdAt: string;
   updatedAt: string;
   reviewedAt: string | null;
+  canonicalWordCandidate: string | null;
+  aliasCandidates: string[];
 }
 
 export interface DictionaryInput {
@@ -43,6 +45,8 @@ export interface DictionaryInput {
   Japanese: string | null;
   summary: string;
   detail: string;
+  canonicalWord: string;
+  aliases: string[];
 }
 
 export interface EditDetails {
@@ -52,6 +56,8 @@ export interface EditDetails {
   Japanese: string | null;
   summary: string | null;
   detail: string | null;
+  canonicalWord: string | null;
+  aliases: string[] | null;
 }
 
 export interface DictionaryContext {
@@ -73,7 +79,15 @@ export type AppResult<T> =
   | { ok: true; value: T }
   | {
       ok: false;
-      error: 'not_found' | 'duplicate' | 'limit_exceeded' | 'forbidden' | 'invalid_input' | 'external_error';
+      error:
+        | 'not_found'
+        | 'duplicate'
+        | 'alias_conflict'
+        | 'limit_exceeded'
+        | 'feature_disabled'
+        | 'forbidden'
+        | 'invalid_input'
+        | 'external_error';
       message: string;
     };
 
@@ -82,6 +96,7 @@ export type AiResult =
   | { type: 'not_explainable' }
   | { type: 'invalid_response'; message: string }
   | { type: 'rate_limited'; message: string }
+  | { type: 'unavailable'; message: string }
   | { type: 'timeout'; message: string }
   | { type: 'external_error'; message: string };
 

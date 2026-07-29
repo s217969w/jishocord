@@ -55,7 +55,7 @@ client.on(Events.MessageCreate, async (message: Message) => {
   }
   try {
     const result = await generateData(word, message.guildId, message.author.id);
-    const content = result.type === 'found'
+    const content = result.type === 'found' || result.type === 'already_exists'
       ? makeReply(result.entry)
       : result.type === 'not_explainable'
         ? 'ごめんなさい、その言葉は説明できなかったよ。'

@@ -8,7 +8,7 @@ import {
 } from 'discord.js';
 import { approve, deleteWord, editWord } from '../back/DB.js';
 import { DictionaryScope, EditDetails, Envs } from '../back/interface.js';
-import { onAsked } from './commandHandler/ask.js';
+import { makeReply, onAsked, registerGeneratedWord } from './commandHandler/ask.js';
 import { unapprovedListUp } from './commandHandler/unapproved.js';
 
 const scopeOption = (option: import('discord.js').SlashCommandStringOption) =>
@@ -26,6 +26,12 @@ const commands = [
     .addStringOption((option) => option.setName('word').setDescription('調べたい単語').setRequired(true)),
   new SlashCommandBuilder().setName('unapproved').setDescription('未承認の単語リストを表示します'),
   new SlashCommandBuilder()
+    .setName('register')
+    .setDescription('AIで辞書への登録候補を作成します')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addStringOption((option) => option.setName('word').setDescription('登録する単語').setRequired(true))
+    .addStringOption(scopeOption),
+  new SlashCommandBuilder()
     .setName('approve')
     .setDescription('指定した用語説明を承認します')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
@@ -41,7 +47,9 @@ const commands = [
     .addStringOption((option) => option.setName('fullword').setDescription('正式名称'))
     .addStringOption((option) => option.setName('japanese').setDescription('正式名称の日本語表記'))
     .addStringOption((option) => option.setName('summary').setDescription('概要文'))
-    .addStringOption((option) => option.setName('detail').setDescription('説明文')),
+    .addStringOption((option) => option.setName('detail').setDescription('説明文'))
+    .addStringOption((option) => option.setName('canonicalword').setDescription('承認時に使う正規語候補'))
+    .addStringOption((option) => option.setName('aliases').setDescription('表記ゆれ候補（カンマ区切り、最大4件）')),
   new SlashCommandBuilder()
     .setName('delete')
     .setDescription('技術用語の説明を削除します')
@@ -76,9 +84,26 @@ export async function interactionHandler(interaction: Interaction<CacheType>): P
     if (interaction.commandName === 'ask') return await onAsked(interaction);
     if (interaction.commandName === 'unapproved') return await unapprovedListUp(interaction);
 
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+      await interaction.reply({ content: 'この操作には「サーバー管理」権限が必要です。', flags: 'Ephemeral' });
+      return;
+    }
     const word = interaction.options.getString('word', true);
     const scope = scopeOf(interaction);
     const context = { guildId: interaction.guildId, discordUserId: interaction.user.id };
+    if (interaction.commandName === 'register') {
+      await interaction.deferReply({ flags: 'Ephemeral' });
+      const result = await registerGeneratedWord(word, interaction.guildId, interaction.user.id, scope);
+      const content = result.type === 'found'
+        ? `${makeReply(result.entry)}\n\n登録候補を作成しました。内容を確認して \`/approve\` してください。`
+        : result.type === 'already_exists'
+          ? `${makeReply(result.entry)}\n\nこの表記は既存の承認済み項目に登録されています。`
+        : result.type === 'not_explainable'
+          ? 'その言葉の登録候補は作成できませんでした。'
+          : result.message;
+      await interaction.editReply({ content, allowedMentions: { parse: [] } });
+      return;
+    }
     if (interaction.commandName === 'approve') {
       const result = await approve(word, context, scope);
       await interaction.reply({ content: result.ok ? `${word}の説明を承認しました。` : result.message, flags: 'Ephemeral' });
@@ -92,6 +117,8 @@ export async function interactionHandler(interaction: Interaction<CacheType>): P
         Japanese: interaction.options.getString('japanese'),
         summary: interaction.options.getString('summary'),
         detail: interaction.options.getString('detail'),
+        canonicalWord: interaction.options.getString('canonicalword'),
+        aliases: interaction.options.getString('aliases')?.split(',').map((alias) => alias.trim()).filter(Boolean) ?? null,
       };
       const result = await editWord(details, context, scope);
       await interaction.reply({ content: result.ok ? `${word}の説明を編集しました。` : result.message, flags: 'Ephemeral' });

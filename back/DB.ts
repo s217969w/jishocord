@@ -11,6 +11,7 @@ import {
 } from './interface.js';
 import { createLogContext, logError } from './logger.js';
 import { dictionaryInputSchema, editDetailsSchema, normalizeWord } from './validation.js';
+import { sanitizeAliasCandidates } from './validation.js';
 
 dotenv.config();
 
@@ -44,6 +45,8 @@ interface DictionaryRow {
   created_at: string;
   updated_at: string;
   reviewed_at: string | null;
+  canonical_word_candidate: string | null;
+  alias_candidates: unknown;
 }
 
 interface GuildSettingsRow {
@@ -76,6 +79,10 @@ function toEntry(row: DictionaryRow): DictionaryEntry {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     reviewedAt: row.reviewed_at,
+    canonicalWordCandidate: row.canonical_word_candidate,
+    aliasCandidates: Array.isArray(row.alias_candidates)
+      ? row.alias_candidates.filter((value): value is string => typeof value === 'string')
+      : [],
   };
 }
 
@@ -83,6 +90,22 @@ function databaseFailure<T>(operation: string, error: PostgrestError): AppResult
   logError(createLogContext(operation), error);
   if (error.code === '23505') {
     return { ok: false, error: 'duplicate', message: '同じ単語が既に登録されています。' };
+  }
+  if (error.code === 'P0001' && error.message.includes('alias_conflict:')) {
+    const alias = error.message.split('alias_conflict:')[1]?.trim();
+    return {
+      ok: false,
+      error: 'alias_conflict',
+      message: `表記「${alias ?? '不明'}」は別の承認済み項目と衝突しています。候補を編集してから再承認してください。`,
+    };
+  }
+  if (error.code === 'P0001' && error.message.includes('canonical_word_conflict:')) {
+    const word = error.message.split('canonical_word_conflict:')[1]?.trim();
+    return {
+      ok: false,
+      error: 'alias_conflict',
+      message: `正規語候補「${word ?? '不明'}」は別の承認済み項目と衝突しています。`,
+    };
   }
   if (error.code === 'P0001' && error.message.includes('local_entry_limit_exceeded')) {
     return { ok: false, error: 'limit_exceeded', message: 'ローカル辞書の登録上限に達しています。' };
@@ -134,6 +157,15 @@ export async function addWord(
   if (scope === 'local' && !context.guildId) {
     return { ok: false, error: 'invalid_input', message: 'ローカル辞書にはサーバーIDが必要です。' };
   }
+  if (scope === 'local') {
+    const settings = await ensureGuildSettings(context.guildId!);
+    if (!settings.ok) return settings;
+    if (!settings.value.localDictionaryEnabled || settings.value.blockedAt) {
+      return { ok: false, error: 'feature_disabled', message: 'このサーバーではローカル辞書を利用できません。' };
+    }
+  }
+
+  const aliases = sanitizeAliasCandidates(parsed.data.canonicalWord, parsed.data.word, parsed.data.aliases);
 
   const { data, error } = await supabase
     .from('dictionary_entries')
@@ -150,6 +182,8 @@ export async function addWord(
       status: 'pending',
       source: 'ai',
       created_by_discord_user_id: context.discordUserId ?? null,
+      canonical_word_candidate: parsed.data.canonicalWord,
+      alias_candidates: aliases,
     })
     .select()
     .single();
@@ -163,7 +197,7 @@ async function findInScope(normalized: string, guildId: string | null): Promise<
     .from('dictionary_entries')
     .select()
     .eq('normalized_word', normalized)
-    .eq('status', 'approved');
+    .neq('status', 'reject');
 
   query = guildId ? query.eq('scope', 'local').eq('guild_id', guildId) : query.eq('scope', 'public').is('guild_id', null);
   const { data, error } = await query.maybeSingle();
@@ -189,8 +223,12 @@ async function findInScope(normalized: string, guildId: string | null): Promise<
 export async function getTips(word: string, guildId: string | null): Promise<AppResult<DictionaryEntry | null>> {
   const normalized = normalizeWord(word);
   if (guildId) {
-    const local = await findInScope(normalized, guildId);
-    if (!local.ok || local.value) return local;
+    const settings = await ensureGuildSettings(guildId);
+    if (!settings.ok) return settings;
+    if (settings.value.localDictionaryEnabled && !settings.value.blockedAt) {
+      const local = await findInScope(normalized, guildId);
+      if (!local.ok || local.value) return local;
+    }
   }
   return findInScope(normalized, null);
 }
@@ -223,24 +261,37 @@ export async function approve(
   if (scope === 'local' && !context.guildId) {
     return { ok: false, error: 'forbidden', message: '対象サーバーを確認できません。' };
   }
+  if (scope === 'local') {
+    const settings = await ensureGuildSettings(context.guildId!);
+    if (!settings.ok) return settings;
+    if (!settings.value.localDictionaryEnabled || settings.value.blockedAt) {
+      return { ok: false, error: 'feature_disabled', message: 'このサーバーではローカル辞書を利用できません。' };
+    }
+  }
   if (scope === 'public' && !(await canApprovePublic(context.guildId))) {
     return { ok: false, error: 'forbidden', message: 'このサーバーではパブリック辞書を承認できません。' };
   }
 
-  let query = supabase
+  let pendingQuery = supabase
     .from('dictionary_entries')
-    .update({
-      status: 'approved',
-      reviewed_by_discord_user_id: context.discordUserId ?? null,
-      reviewed_at: new Date().toISOString(),
-    })
+    .select('id')
     .eq('normalized_word', normalizeWord(word))
     .eq('status', 'pending')
     .eq('scope', scope);
-  query = scope === 'local' ? query.eq('guild_id', context.guildId) : query.is('guild_id', null);
-  const { data, error } = await query.select().maybeSingle();
+  pendingQuery = scope === 'local'
+    ? pendingQuery.eq('guild_id', context.guildId)
+    : pendingQuery.is('guild_id', null);
+  const pending = await pendingQuery.maybeSingle();
+  if (pending.error) return databaseFailure('findPendingForApproval', pending.error);
+  if (!pending.data) return { ok: false, error: 'not_found', message: '未承認の単語が見つかりません。' };
+
+  const { data, error } = await supabase
+    .rpc('approve_dictionary_entry', {
+      p_entry_id: pending.data.id,
+      p_reviewer_discord_user_id: context.discordUserId ?? null,
+    })
+    .single();
   if (error) return databaseFailure('approve', error);
-  if (!data) return { ok: false, error: 'not_found', message: '未承認の単語が見つかりません。' };
   return { ok: true, value: toEntry(data as DictionaryRow) };
 }
 
@@ -253,8 +304,22 @@ export async function editWord(
   if (!parsed.success) {
     return { ok: false, error: 'invalid_input', message: parsed.error.issues[0]?.message ?? '入力が不正です。' };
   }
+  if (parsed.data.aliases !== null && parsed.data.canonicalWord === null) {
+    return {
+      ok: false,
+      error: 'invalid_input',
+      message: '表記ゆれ候補を編集するときは正規語候補も指定してください。',
+    };
+  }
   if (scope === 'local' && !context.guildId) {
     return { ok: false, error: 'forbidden', message: '対象サーバーを確認できません。' };
+  }
+  if (scope === 'local') {
+    const settings = await ensureGuildSettings(context.guildId!);
+    if (!settings.ok) return settings;
+    if (!settings.value.localDictionaryEnabled || settings.value.blockedAt) {
+      return { ok: false, error: 'feature_disabled', message: 'このサーバーではローカル辞書を利用できません。' };
+    }
   }
   if (scope === 'public' && !(await canApprovePublic(context.guildId))) {
     return { ok: false, error: 'forbidden', message: 'このサーバーではパブリック辞書を編集できません。' };
@@ -267,6 +332,10 @@ export async function editWord(
       japanese: parsed.data.Japanese,
       summary: parsed.data.summary,
       detail: parsed.data.detail,
+      canonical_word_candidate: parsed.data.canonicalWord,
+      alias_candidates: parsed.data.aliases === null || parsed.data.canonicalWord === null
+        ? null
+        : sanitizeAliasCandidates(parsed.data.canonicalWord, parsed.data.word, parsed.data.aliases),
     }).filter(([, value]) => value !== null),
   );
   let query = supabase
@@ -288,6 +357,13 @@ export async function deleteWord(
 ): Promise<AppResult<null>> {
   if (scope === 'local' && !context.guildId) {
     return { ok: false, error: 'forbidden', message: '対象サーバーを確認できません。' };
+  }
+  if (scope === 'local') {
+    const settings = await ensureGuildSettings(context.guildId!);
+    if (!settings.ok) return settings;
+    if (!settings.value.localDictionaryEnabled || settings.value.blockedAt) {
+      return { ok: false, error: 'feature_disabled', message: 'このサーバーではローカル辞書を利用できません。' };
+    }
   }
   if (scope === 'public' && !(await canApprovePublic(context.guildId))) {
     return { ok: false, error: 'forbidden', message: 'このサーバーではパブリック辞書を削除できません。' };
