@@ -60,6 +60,9 @@ const commands = [
 
 export async function registerCommands(rest: REST, envs: Envs): Promise<void> {
   if (!envs.clientId) throw new Error('DISCORD_CLIENT_ID が未登録です');
+
+  await rest.put(Routes.applicationCommands(envs.clientId),{ body: [] },);
+
   if (envs.commandRegistration === 'guild') {
     if (!envs.guildId) throw new Error('guild登録には DISCORD_GUILD_ID が必要です');
     await rest.put(Routes.applicationGuildCommands(envs.clientId, envs.guildId), { body: commands });
